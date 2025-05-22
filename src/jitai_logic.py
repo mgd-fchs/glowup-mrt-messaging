@@ -24,6 +24,22 @@ def jitai_logic():
     active_meal_window_participants = get_active_meal_window_participants(participants)
     print("Currently active:", active_meal_window_participants)
 
+    steps_data = get_apple_health_steps(
+        access_token,
+        project_id,
+        active_meal_window_participants[0]["participantIdentifier"],
+        base_url
+    )
+
+    print(steps_data)
+    print(type(steps_data))
+
+    daily_steps = aggregate_steps_by_source(steps_data)
+
+    print("Step totals by source (today):")
+    for source, total in daily_steps.items():
+        print(f"{source}: {total} steps")
+
 
 if __name__ == "__main__":
     while True:
