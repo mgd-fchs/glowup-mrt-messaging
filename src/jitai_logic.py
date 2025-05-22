@@ -1,9 +1,13 @@
 import time
 import os
-from api_utils import get_service_access_token, get_from_api, base_url, project_id
-from jitai_utils import *
 import time
 import requests
+
+from jitai_utils import *
+from api_utils import *
+from notifications import *
+import apple_health as AppleHealth
+import health_connect as HealthConnect
 
 def jitai_logic():
     access_token = get_service_access_token()
@@ -19,26 +23,45 @@ def jitai_logic():
         if len(data.get("participants", [])) < 100:
             break
         page += 1
-    print(participants)
+    # print(participants)
 
+    # Participants with active meal windows
     active_meal_window_participants = get_active_meal_window_participants(participants)
     print("Currently active:", active_meal_window_participants)
 
-    steps_data = get_apple_health_steps(
+    # Query steps
+    # TODO: Wrap this in loop for all active participants
+    steps_data = AppleHealth.get_apple_health_steps(
         access_token,
         project_id,
         active_meal_window_participants[0]["participantIdentifier"],
         base_url
     )
 
-    print(steps_data)
-    print(type(steps_data))
-
-    daily_steps = aggregate_steps_by_source(steps_data)
+    daily_steps = AppleHealth.aggregate_steps_by_source(steps_data)
 
     print("Step totals by source (today):")
     for source, total in daily_steps.items():
         print(f"{source}: {total} steps")
+
+        #TODO: If two sources, use UH/Fitbit, else use whichever available (could be phone)
+
+    # # Query sleep   # TODO: Fix this
+    # sleep_data = AppleHealth.get_apple_health_sleep(
+    #     service_access_token=access_token,
+    #     project_id=project_id,
+    #     participant_identifier=active_meal_window_participants[0]["participantIdentifier"],
+    #     base_url=base_url
+    # )
+
+    # for entry in sleep_data:
+    #     print(entry)
+
+    # Example va
+    total_steps = 5500  # Example step count
+
+    # Send the appropriate notification based on step count
+    send_notifications(access_token, project_id, active_meal_window_participants[0]["participantIdentifier"], total_steps)
 
 
 if __name__ == "__main__":
