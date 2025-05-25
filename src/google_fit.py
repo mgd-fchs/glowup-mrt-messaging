@@ -3,16 +3,16 @@ import requests
 from collections import defaultdict
 
 
-def get_health_connect_steps(service_access_token, project_id, participant_identifier, base_url):
-    url = f"{base_url}/api/v2/administration/projects/{project_id}/devicedatapoints"
+def get_google_fit_steps(service_access_token, project_id, participant_identifier, base_url):
+    url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
     today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "HealthConnect",
+        "namespace": "GoogleFit",
         "type": "Steps",
         "participantIdentifier": participant_identifier,
-        # "observedAfter": today
+        # "observedAfter": today  # Uncomment to limit to today
     }
 
     headers = {
@@ -23,6 +23,7 @@ def get_health_connect_steps(service_access_token, project_id, participant_ident
     response = requests.get(url, headers=headers, params=params)
     response.raise_for_status()
 
+    # print(response.json())
     return response.json().get("deviceDataPoints", [])
 
 
@@ -53,16 +54,15 @@ def aggregate_steps_by_source(data_points):
     return dict(step_totals)
 
 
-def get_health_connect_sleep(service_access_token, project_id, participant_identifier, base_url):
+def get_google_fit_sleep(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
     today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "HealthConnect",
+        "namespace": "GoogleFit",
         "participantIdentifier": participant_identifier,
-        # "observedAfter": today
-        # Let type be open; filter manually
+        # "observedAfter": today  # Optional
     }
 
     headers = {

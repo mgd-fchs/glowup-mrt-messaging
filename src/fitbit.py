@@ -1,18 +1,19 @@
-from datetime import datetime, time, timezone
+from datetime import datetime, timedelta, time, timezone
+import pytz
 import requests
 from collections import defaultdict
 
 
-def get_health_connect_steps(service_access_token, project_id, participant_identifier, base_url):
-    url = f"{base_url}/api/v2/administration/projects/{project_id}/devicedatapoints"
+def get_fitbit_steps(service_access_token, project_id, participant_identifier, base_url):
+    url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
     today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "HealthConnect",
+        "namespace": "Fitbit",
         "type": "Steps",
         "participantIdentifier": participant_identifier,
-        # "observedAfter": today
+        "observedAfter": today
     }
 
     headers = {
@@ -31,7 +32,7 @@ def aggregate_steps_by_source(data_points):
     today = datetime.now(timezone.utc).date()
 
     for dp in data_points:
-        if dp.get("type", "").lower() != "steps":
+        if dp.get("type") != "Steps":
             continue
 
         try:
@@ -53,16 +54,16 @@ def aggregate_steps_by_source(data_points):
     return dict(step_totals)
 
 
-def get_health_connect_sleep(service_access_token, project_id, participant_identifier, base_url):
+def get_fitbit_sleep(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
     today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "HealthConnect",
+        "namespace": "Fitbit",
         "participantIdentifier": participant_identifier,
-        # "observedAfter": today
-        # Let type be open; filter manually
+        "observedAfter": today
+        # Type filter optional for Fitbit sleep
     }
 
     headers = {
@@ -75,5 +76,5 @@ def get_health_connect_sleep(service_access_token, project_id, participant_ident
 
     data = response.json().get("deviceDataPoints", [])
 
-    # Filter entries containing sleep-related data
+    # Filter only sleep-related entries if needed
     return [dp for dp in data if "sleep" in dp.get("type", "").lower()]

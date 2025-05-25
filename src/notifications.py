@@ -29,7 +29,8 @@ def send_notifications(service_access_token, project_id, participant_identifier,
         {
             "participantIdentifier": participant_identifier,
             "notificationIdentifier": notification_id,
-            # "sendTime": "2025-05-22T22:30:00Z" # TODO: Scheduling
+            "sendTime": "2025-05-23T11:34:00Z"
+
         }
     ]
 

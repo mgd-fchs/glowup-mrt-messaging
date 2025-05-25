@@ -7,9 +7,8 @@ from jitai_utils import *
 from api_utils import *
 from notifications import *
 import apple_health as AppleHealth
-import health_connect as HealthConnect
 
-def jitai_logic():
+def jitai_logic_applehealth():
     access_token = get_service_access_token()
 
     # Get all participants
@@ -34,7 +33,8 @@ def jitai_logic():
     steps_data = AppleHealth.get_apple_health_steps(
         access_token,
         project_id,
-        active_meal_window_participants[0]["participantIdentifier"],
+        # active_meal_window_participants[0]["participantIdentifier"],
+        "MDH-0274-8346",
         base_url
     )
 
@@ -61,11 +61,11 @@ def jitai_logic():
     total_steps = 5500  # Example step count
 
     # Send the appropriate notification based on step count
-    send_notifications(access_token, project_id, active_meal_window_participants[0]["participantIdentifier"], total_steps)
+    send_notifications(access_token, project_id, "MDH-0274-8346", total_steps)
 
 
 if __name__ == "__main__":
     while True:
         print("Running JITAI loop...")
-        jitai_logic()
+        jitai_logic_applehealth()
         time.sleep(300)  # wait 5 minutes
