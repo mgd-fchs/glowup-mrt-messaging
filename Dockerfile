@@ -5,6 +5,6 @@ WORKDIR /var/task
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY src/ src/
+COPY . .
 
-CMD ["src.jitai_logic_applehealth.lambda_handler"]
+CMD ["jitai_logic_applehealth.lambda_handler"]
