@@ -5,8 +5,8 @@ WORKDIR /var/task
 COPY requirements.txt .
 RUN pip uninstall jwt
 RUN pip uninstall PyJWT
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["jitai_logic_applehealth.lambda_handler"]
+CMD "jitai_logic_applehealth.lambda_handler"
