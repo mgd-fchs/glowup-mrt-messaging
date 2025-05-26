@@ -26,9 +26,3 @@ jobs:
         run: |
           docker build -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest .
           docker push 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest
-
-      - name: Update Lambda function
-        run: |
-          aws lambda update-function-code \
-            --function-name mrt-message-dispatch \
-            --image-uri 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest
