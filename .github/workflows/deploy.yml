@@ -24,9 +24,5 @@ jobs:
 
       - name: Build, tag, and push Docker image to ECR
         run: |
-          docker buildx create --use || true
-          docker buildx build \ 
-            --platform linux/arm64 \
-            --push \
-            -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest \
-            .
+          docker build -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest .
+          docker push 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest
