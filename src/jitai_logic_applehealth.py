@@ -69,3 +69,9 @@ if __name__ == "__main__":
         print("Running JITAI loop...")
         jitai_logic_applehealth()
         time.sleep(300)  # wait 5 minutes
+
+def lambda_handler(event, context):
+    print("Running JITAI loop (AWS Lambda trigger)...")
+    jitai_logic_applehealth()
+    return {"status": "completed"}
+
