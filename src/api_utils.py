@@ -4,9 +4,9 @@ from datetime import datetime
 from uuid import uuid4
 import os
 from typing import Optional, Dict
-import jwt  # pip install PyJWT
-import requests  # pip install requests
-from dotenv import load_dotenv  # pip install python-dotenv
+import jwt  
+import requests 
+from dotenv import load_dotenv
 
 load_dotenv()
 
