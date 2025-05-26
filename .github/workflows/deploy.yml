@@ -17,12 +17,12 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install dependencies and build package
+    - name: Build Lambda package with Docker
       run: |
-        mkdir -p package
-        pip install -r requirements.txt -t package/
-        cp -r src/* package/
-        cd package && zip -r ../jitai_lambda.zip .
+        mkdir -p lambda_build
+        docker run --rm -v "$PWD":/var/task -w /var/task lambci/lambda:build-python3.9 \
+          /bin/bash -c "pip install -r requirements.txt -t lambda_build/ && cp -r src/* lambda_build/"
+        cd lambda_build && zip -r ../jitai_lambda.zip .
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
