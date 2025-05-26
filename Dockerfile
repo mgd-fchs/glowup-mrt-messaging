@@ -3,7 +3,8 @@ FROM public.ecr.aws/lambda/python:3.9
 WORKDIR /var/task
 
 COPY requirements.txt .
-RUN pip uninstall -y jwt || true
+RUN pip uninstall jwt
+RUN pip uninstall PyJWT
 RUN pip install -r requirements.txt
 
 COPY . .
