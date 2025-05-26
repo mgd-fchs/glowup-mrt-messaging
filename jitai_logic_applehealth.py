@@ -8,7 +8,8 @@ from api_utils import *
 from notifications import *
 import apple_health as AppleHealth
 
-def jitai_logic_applehealth():
+def lambda_handler(event, context):
+    print("Running JITAI loop (AWS Lambda trigger)...")
     access_token = get_service_access_token()
 
     # Get all participants
@@ -63,15 +64,11 @@ def jitai_logic_applehealth():
     # Send the appropriate notification based on step count
     send_notifications(access_token, project_id, "MDH-0274-8346", total_steps)
 
-
-if __name__ == "__main__":
-    while True:
-        print("Running JITAI loop...")
-        jitai_logic_applehealth()
-        time.sleep(300)  # wait 5 minutes
-
-def lambda_handler(event, context):
-    print("Running JITAI loop (AWS Lambda trigger)...")
-    jitai_logic_applehealth()
     return {"status": "completed"}
 
+
+# if __name__ == "__main__":
+#     while True:
+#         print("Running JITAI loop...")
+#         jitai_logic_applehealth()
+#         time.sleep(300)  # wait 5 minutes
