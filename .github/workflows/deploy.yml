@@ -22,7 +22,10 @@ jobs:
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, tag, and push Docker image to ECR
+      - name: Create builder
+        run: docker buildx create --name mrt-builder --use --driver docker-container || true
+
+      - name: Build image and push manually
         run: |
-          docker buildx create --use || true
-          docker buildx build --platform linux/arm64 --push -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest .
+          docker buildx build --platform linux/arm64 --builder mrt-builder --load -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest .
+          docker push 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest
