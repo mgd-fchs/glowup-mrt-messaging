@@ -27,5 +27,10 @@ jobs:
 
       - name: Build image and push manually
         run: |
-          docker buildx build --platform linux/arm64 --builder mrt-builder --load -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest .
+          docker buildx build --platform linux/arm64 --builder mrt-builder --load \
+            --build-arg BASE_URL=${{ secrets.BASE_URL }} \
+            --build-arg RKS_PRIVATE_KEY="${{ secrets.RKS_PRIVATE_KEY }}" \
+            --build-arg RKS_PROJECT_ID=${{ secrets.RKS_PROJECT_ID }} \
+            --build-arg RKS_SERVICE_ACCOUNT=${{ secrets.RKS_SERVICE_ACCOUNT }} \
+            -t 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest .
           docker push 301678011527.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:latest
