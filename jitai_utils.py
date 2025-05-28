@@ -1,5 +1,19 @@
 from datetime import datetime, timedelta
 import pytz
+import api_utils
+
+def get_participants_by_segment(project_id, access_token, segment_id):
+    participants = []
+    page = 0
+    while True:
+        url = f'api/v1/administration/projects/{project_id}/participants?segmentId={segment_id}&pageNumber={page}&pageSize=100'
+        response = api_utils.get_from_api(access_token, url)
+        data = response.json()
+        participants.extend(data.get("participants", []))
+        if len(data.get("participants", [])) < 100:
+            break
+        page += 1
+    return participants
 
 def is_currently_in_mealtime_window(start_time_str: str, local_time: datetime.time) -> bool:
     

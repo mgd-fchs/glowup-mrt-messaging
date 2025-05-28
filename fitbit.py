@@ -4,7 +4,7 @@ import requests
 from collections import defaultdict
 
 
-def get_fitbit_steps(service_access_token, project_id, participant_identifier, base_url):
+def get_steps(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
     today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -54,7 +54,7 @@ def aggregate_steps_by_source(data_points):
     return dict(step_totals)
 
 
-def get_fitbit_sleep(service_access_token, project_id, participant_identifier, base_url):
+def get_sleep(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
     today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')

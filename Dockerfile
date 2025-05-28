@@ -18,4 +18,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD "jitai_logic_applehealth.lambda_handler"
+CMD "jitai_logic.lambda_handler"
