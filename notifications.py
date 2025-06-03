@@ -15,7 +15,7 @@ SENT_LOG_KEY = "sent_log.json"
 # Mock notification bank
 NOTIFICATION_BANK = {
     "control": ["neutral_00", "neutral_01"],
-    "context": ["mood_neg_00", "mood_neg_01"],
+    "context": ["mood_neg_00", "mood_pos_00"],
     "loss": ["loss_fin_00", "loss_fin_00"]
 }
 

@@ -13,6 +13,7 @@ def lambda_handler(event=None, context=None):
     sent_log = load_log(BUCKET, "sent_log.json", dated=True)
     now_utc = datetime.now(timezone.utc)
 
+    print(f"project_id: {project_id}")
     access_token = get_service_access_token()
 
     url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/notifications"
@@ -58,6 +59,7 @@ def lambda_handler(event=None, context=None):
             "sendTime": now_utc.isoformat() + "Z"
         }]
 
+        print(f"Sending payload: {json.dumps(payload, indent=2)}")
         response = requests.post(url, headers=headers, json=payload)
 
         if response.status_code == 200:
