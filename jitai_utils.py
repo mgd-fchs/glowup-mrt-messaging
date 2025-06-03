@@ -38,27 +38,23 @@ def get_active_meal_window_participants(participants):
     for p in participants:
         custom_fields = p.get("customFields", {})
         participant_tz_name = p.get("demographics", {}).get("timeZone", "UTC")
-        # print(participant_tz_name)
         try:
             participant_tz = pytz.timezone(participant_tz_name)
         except Exception as e:
             print(f"Invalid timezone '{participant_tz_name}' for participant {p['id']}, defaulting to UTC: {e}")
             participant_tz = pytz.UTC
-            # TODO: Test time zone differences
 
         now_local = datetime.now(participant_tz).time()
 
-        # Check if any 'mealtime_' field is active
-        # print(custom_fields.items())
-        # print(now_local)
-        is_active = any(
-            is_currently_in_mealtime_window(value, now_local)
-            for key, value in custom_fields.items()
-            if key.startswith("mealtime_") and value
-        )
+        active_mealtimes = [
+            key for key, value in custom_fields.items()
+            if key.startswith("mealtime_") and value and is_currently_in_mealtime_window(value, now_local)
+        ]
 
-        if is_active:
+        if active_mealtimes:
+            p["active_mealtimes"] = active_mealtimes  # Add to participant dict
             active_participants.append(p)
 
     return active_participants
+
 

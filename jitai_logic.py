@@ -1,7 +1,4 @@
 import time
-import os
-import time
-import requests
 
 from jitai_utils import *
 from api_utils import *
@@ -25,10 +22,14 @@ def lambda_handler(event, context):
     access_token = get_service_access_token()
 
     active_participant_ids_by_platform = {}
+    participant_context_data = {}
+    all_active_participants = {}
 
     for platform, seg_id in segment_ids.items():
         segment_participants = get_participants_by_segment(project_id, access_token, seg_id)
         active_participants = get_active_meal_window_participants(segment_participants)
+        for p in active_participants:
+            all_active_participants[p["participantIdentifier"]] = p
         active_ids = [p["participantIdentifier"] for p in active_participants]
         active_participant_ids_by_platform[platform] = active_ids
         print(f"{platform} - Active participant IDs: {active_ids}")
@@ -48,27 +49,29 @@ def lambda_handler(event, context):
                 steps_data = Fitbit.get_steps(access_token, project_id, pid, base_url)
                 sleep_data = Fitbit.get_sleep(access_token, project_id, pid, base_url)
                 daily_steps = Fitbit.aggregate_steps_by_source(steps_data)
-            
-            print(f"{platform} - {pid} - Daily steps by source:", daily_steps)
-            print(f"{platform} - {pid} - Sleep data:", sleep_data)
 
-        #TODO: If two sources, use UH/Fitbit, else use whichever available (could be phone)
+            total_steps = max(daily_steps.values()) if daily_steps else None
+            total_sleep_ms = sum([s.get("duration", 0) for s in sleep_data])
+            total_sleep_hours = total_sleep_ms / (1000 * 60 * 60)
 
-    # # Query sleep   # TODO: Fix this
-    # sleep_data = AppleHealth.get_apple_health_sleep(
-    #     service_access_token=access_token,
-    #     project_id=project_id,
-    #     participant_identifier=active_meal_window_participants[0]["participantIdentifier"],
-    #     base_url=base_url
-    # )
+            p_obj = all_active_participants.get(pid)
 
-    # for entry in sleep_data:
-    #     print(entry)
+            participant_context_data[pid] = {
+                "platform": platform,
+                "total_steps": total_steps,
+                "total_sleep_hours": total_sleep_hours,
+                "active_mealtimes": p_obj.get("active_mealtimes", []) if p_obj else [],
+                "custom_fields": p_obj.get("customFields", {}) if p_obj else {}
+            }
 
-    total_steps = 5500  # Example step count
+            print(f"{platform} - {pid} - Steps: {total_steps}, Sleep (h): {total_sleep_hours:.2f}")
 
-    # Send the appropriate notification based on step count
-    send_notifications(access_token, project_id, "MDH-0274-8346", total_steps)
+    assignments = randomize(participant_context_data)
+    for pid, group in assignments.items():
+        mealtimes = participant_context_data[pid].get("active_mealtimes", [])
+        print(f"{pid} assigned to group: {group} | Active mealtime(s): {', '.join(mealtimes) if mealtimes else 'None'}")
+
+    schedule_notifications(assignments, participant_context_data)
 
     return {"status": "completed"}
 

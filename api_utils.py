@@ -6,6 +6,7 @@ import os
 from typing import Optional, Dict
 import jwt  
 import requests 
+from dateutil import parser
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -78,3 +79,11 @@ def get_participant_access_token(
     response = requests.post(url=token_url, data=token_payload)
     response.raise_for_status()
     return response.json()["access_token"]
+
+
+def safe_parse_iso(s):
+    try:
+        return parser.isoparse(s)
+    except Exception as e:
+        print(f"Skipping invalid timestamp: {s} – {e}")
+        return None

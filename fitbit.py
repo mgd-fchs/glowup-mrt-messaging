@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, time, timezone
 import pytz
 import requests
 from collections import defaultdict
+from api_utils import *
 
 
 def get_steps(service_access_token, project_id, participant_identifier, base_url):
@@ -36,7 +37,9 @@ def aggregate_steps_by_source(data_points):
             continue
 
         try:
-            start_date = datetime.fromisoformat(dp["startDate"].replace("Z", "+00:00"))
+            start_date = safe_parse_iso(dp["startDate"])
+            if not start_date:
+                continue
         except Exception as e:
             print(f"Skipping invalid timestamp: {dp['startDate']} – {e}")
             continue
