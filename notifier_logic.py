@@ -1,6 +1,8 @@
 import requests
 from datetime import datetime, timezone
 from notifications import *
+from api_utils import *
+from jitai_utils import *
 
 BUCKET = "mrt-messages-logs"
 
@@ -11,12 +13,11 @@ def lambda_handler(event=None, context=None):
     sent_log = load_log(BUCKET, "sent_log.json", dated=True)
     now_utc = datetime.now(timezone.utc)
 
-    service_access_token = "REPLACE_WITH_ACTUAL_TOKEN"
-    project_id = "REPLACE_WITH_PROJECT_ID"
+    access_token = get_service_access_token()
 
     url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/notifications"
     headers = {
-        "Authorization": f"Bearer {service_access_token}",
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
