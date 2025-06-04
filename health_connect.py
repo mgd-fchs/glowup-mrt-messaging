@@ -48,7 +48,7 @@ def aggregate_steps_by_source(data_points):
 
         try:
             source_name = dp["source"]["properties"].get("SourceName", "Unknown Source")
-            step_value = int(dp["value"])
+            step_value = int(float(dp["value"]))
             step_totals[source_name] += step_value
         except Exception as e:
             print(f"Error parsing entry: {e}")
