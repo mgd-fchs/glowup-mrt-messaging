@@ -6,7 +6,11 @@ import json
 from botocore.exceptions import ClientError
 from dateutil import parser
 from s3_utils import *
-
+from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
+import random
+from dateutil import parser
+from pytz import timezone as pytz_timezone
 
 BUCKET = "mrt-messages-logs"
 SENT_LOG_KEY = "sent_log.json"
@@ -20,30 +24,29 @@ NOTIFICATION_BANK = {
 }
 
 
-def get_random_send_time(start_str, tzinfo=timezone.utc):
-    """
-    Given a time string like '12:00' or '02:30 PM', returns a random datetime
-    today between that time and +2h, in UTC.
-    """
-    try:
-        parsed_time = parser.parse(start_str).time()  # supports AM/PM and 24h formats
-    except Exception as e:
-        raise ValueError(f"Unparseable time string '{start_str}': {e}")
 
-    today = datetime.now(tzinfo).date()
-    start_dt = datetime.combine(today, parsed_time, tzinfo)
+def get_random_send_time(start_str, tz_str="Europe/Zurich"):
+    parsed_time = parser.parse(start_str).time()
+    tz = pytz_timezone(tz_str)
+    today = datetime.now(tz).date()
+    start_dt = tz.localize(datetime.combine(today, parsed_time))
     end_dt = start_dt + timedelta(hours=2)
 
-    delta_minutes = int((end_dt - start_dt).total_seconds() // 60)
-    random_offset = random.randint(0, delta_minutes)
-    send_time = start_dt + timedelta(minutes=random_offset)
+    now_local = datetime.now(tz)
+    if now_local > end_dt:
+        raise ValueError("Time window already passed.")
 
-    return send_time.isoformat().replace("+00:00", "Z")
+    lower_bound = max(start_dt, now_local)
+    delta_minutes = int((end_dt - lower_bound).total_seconds() // 60)
+    random_offset = random.randint(0, delta_minutes)
+    send_time_local = lower_bound + timedelta(minutes=random_offset)
+
+    return send_time_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def log_notification(bucket, participant_record):
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    log_key = f"logs/{date_str}.jsonl"
+    log_key = f"logs/{date_str}.json"
     s3 = boto3.client('s3')
 
     line = json.dumps(participant_record) + "\n"
