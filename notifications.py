@@ -256,18 +256,22 @@ def randomize(participant_context_data):
 import requests
 
 def set_custom_field(access_token, project_id, participant_id, field_name, value):
-    url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/participants/{participant_id}/customfields"
+    url = f"https://designer.mydatahelps.org/api/v1/administration/projects/{project_id}/participants"
     headers = {
         "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
         "Content-Type": "application/json"
     }
     payload = {
-        field_name: value
+        "participantIdentifier": participant_id,
+        "customFields": {
+            field_name: value
+        }
     }
 
     response = requests.put(url, headers=headers, json=payload)
     if response.status_code != 200:
         raise RuntimeError(
             f"Failed to update field '{field_name}' for participant '{participant_id}': "
-            f"{response.status_code} - {response.text}"
+            f"{response.status_code} – {response.text}"
         )

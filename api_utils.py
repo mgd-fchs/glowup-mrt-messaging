@@ -87,3 +87,35 @@ def safe_parse_iso(s):
     except Exception as e:
         print(f"Skipping invalid timestamp: {s} – {e}")
         return None
+
+
+def get_all_participants(project_id, access_token):
+    """
+    Fetches all participants in the given MyDataHelps project.
+
+    Returns:
+        list of participant objects.
+    """
+    url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/participants"
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise RuntimeError(f"Failed to fetch participants: {response.status_code} - {response.text}")
+
+    return response.json().get("participants", [])
+
+def get_surveys(project_id, access_token, participant_id):
+
+    url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/participants/{participant_id}/surveyevents"
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise RuntimeError(f"Failed to fetch surveys for {participant_id}: {response.status_code} - {response.text}")
+
+    return response.json().get("surveyEvents", [])

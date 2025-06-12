@@ -102,17 +102,19 @@ def lambda_handler(event, context):
 
 def update_tracking_completion(access_token, project_id):
     completed_log = load_log(BUCKET, "completed_log.json", dated=True)
-    participants = get_all_participants(project_id, access_token)  # TODO: function may need to be implemented
+    participants = get_all_participants(project_id, access_token)  
 
     for p in participants:
         pid = p["participantIdentifier"]
-        surveys = get_surveys(project_id, access_token, pid)
+        surveys = get_surveys(project_id, access_token, pid) 
         delivered = int(p.get("customFields", {}).get("SurveysDelivered", 0))
         count = int(p.get("customFields", {}).get("TrackingCount", 0))
 
         for survey in surveys:
             if survey["status"] == "Completed":
-                key = f"{pid}::{survey['surveyIdentifier']}"
+                date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                key = f"{pid}::{survey['surveyIdentifier']}::{date_str}"
+
                 if key not in completed_log:
                     count += 1
                     set_custom_field(access_token, project_id, pid, "TrackingCount", count)
@@ -122,6 +124,7 @@ def update_tracking_completion(access_token, project_id):
                     print(f"Updated TrackingCount and TrackingRate for {pid}")
 
     save_log(BUCKET, "completed_log.json", completed_log, dated=True)
+
 
 
 if __name__ == "__main__":
