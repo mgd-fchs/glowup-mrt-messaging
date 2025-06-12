@@ -9,6 +9,13 @@ import health_connect as HealthConnect
 import google_fit as GoogleFit
 import fitbit as Fitbit
 
+from datetime import datetime, timezone
+import json
+import boto3
+from botocore.exceptions import ClientError
+
+BUCKET = "mrt-messages-logs"
+
 
 def lambda_handler(event, context):
     print("Running MRT loop...")
@@ -19,14 +26,14 @@ def lambda_handler(event, context):
         "Fitbit": "e1fc5eaf-e279-4e83-8a05-69831c352bd1"
     }
 
-    access_token = get_service_access_token()
+    access_token = get_service_access_token()  # TODO: Replace with actual token retrieval
 
     active_participant_ids_by_platform = {}
     participant_context_data = {}
     all_active_participants = {}
 
     for platform, seg_id in segment_ids.items():
-        segment_participants = get_participants_by_segment(project_id, access_token, seg_id)
+        segment_participants = get_participants_by_segment(project_id, access_token, seg_id)  # TODO: replace project_id
         active_participants = get_active_meal_window_participants(segment_participants)
         for p in active_participants:
             all_active_participants[p["participantIdentifier"]] = p
@@ -34,11 +41,13 @@ def lambda_handler(event, context):
         active_participant_ids_by_platform[platform] = active_ids
         print(f"{platform} - Active participant IDs: {active_ids}")
 
-    # Query steps and sleep per participant
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    delivered_log = load_log(BUCKET, f"delivered_log.json", dated=True)
+
     for platform, participant_ids in active_participant_ids_by_platform.items():
         for pid in participant_ids:
             if platform == "iOS":
-                steps_data = AppleHealth.get_steps(access_token, project_id, pid, base_url)
+                steps_data = AppleHealth.get_steps(access_token, project_id, pid, base_url)  # TODO: base_url
                 sleep_data = AppleHealth.get_sleep(access_token, project_id, pid, base_url)
                 daily_steps = AppleHealth.aggregate_steps_by_source(steps_data)
             elif platform == "Android":
@@ -55,16 +64,29 @@ def lambda_handler(event, context):
             total_sleep_hours = total_sleep_ms / (1000 * 60 * 60)
 
             p_obj = all_active_participants.get(pid)
+            active_mealtimes = p_obj.get("active_mealtimes", []) if p_obj else []
+            custom_fields = p_obj.get("customFields", {}) if p_obj else {}
+
+            for mealtime in active_mealtimes:
+                log_key = f"{pid}::{mealtime}::{today_str}"
+                if log_key not in delivered_log:
+                    # Increment SurveysDelivered
+                    current_delivered = int(custom_fields.get("SurveysDelivered", 0))
+                    set_custom_field(access_token, project_id, pid, "SurveysDelivered", current_delivered + 1)
+                    delivered_log[log_key] = datetime.now(timezone.utc).isoformat()
+                    print(f"SurveysDelivered incremented for {pid} at {mealtime}")
 
             participant_context_data[pid] = {
                 "platform": platform,
                 "total_steps": total_steps,
                 "total_sleep_hours": total_sleep_hours,
-                "active_mealtimes": p_obj.get("active_mealtimes", []) if p_obj else [],
-                "custom_fields": p_obj.get("customFields", {}) if p_obj else {}
+                "active_mealtimes": active_mealtimes,
+                "custom_fields": custom_fields
             }
 
             print(f"{platform} - {pid} - Steps: {total_steps}, Sleep (h): {total_sleep_hours:.2f}")
+
+    save_log(BUCKET, f"delivered_log.json", delivered_log, dated=True)
 
     assignments = randomize(participant_context_data)
     for pid, group in assignments.items():
@@ -73,7 +95,33 @@ def lambda_handler(event, context):
 
     schedule_notifications(assignments, participant_context_data)
 
+    update_tracking_completion(access_token, project_id)  # Add call to new tracking updater
+
     return {"status": "completed"}
+
+
+def update_tracking_completion(access_token, project_id):
+    completed_log = load_log(BUCKET, "completed_log.json", dated=True)
+    participants = get_all_participants(project_id, access_token)  # TODO: function may need to be implemented
+
+    for p in participants:
+        pid = p["participantIdentifier"]
+        surveys = get_surveys(project_id, access_token, pid)
+        delivered = int(p.get("customFields", {}).get("SurveysDelivered", 0))
+        count = int(p.get("customFields", {}).get("TrackingCount", 0))
+
+        for survey in surveys:
+            if survey["status"] == "Completed":
+                key = f"{pid}::{survey['surveyIdentifier']}"
+                if key not in completed_log:
+                    count += 1
+                    set_custom_field(access_token, project_id, pid, "TrackingCount", count)
+                    rate = int((count / delivered) * 100) if delivered > 0 else 0
+                    set_custom_field(access_token, project_id, pid, "TrackingRate", rate)
+                    completed_log[key] = datetime.now(timezone.utc).isoformat()
+                    print(f"Updated TrackingCount and TrackingRate for {pid}")
+
+    save_log(BUCKET, "completed_log.json", completed_log, dated=True)
 
 
 if __name__ == "__main__":

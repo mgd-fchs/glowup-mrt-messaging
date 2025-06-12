@@ -55,9 +55,8 @@ def lambda_handler(event=None, context=None):
         # Time to send
         payload = [{
             "participantIdentifier": pid,
-            "notificationIdentifier": notification_id,
-            "sendTime": now_utc.isoformat() + "Z"
-        }]
+            "notificationIdentifier": notification_id
+            }]
 
         print(f"Sending payload: {json.dumps(payload, indent=2)}")
         response = requests.post(url, headers=headers, json=payload)

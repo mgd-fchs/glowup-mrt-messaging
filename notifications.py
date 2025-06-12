@@ -18,12 +18,13 @@ SENT_LOG_KEY = "sent_log.json"
 
 # Mock notification bank
 NOTIFICATION_BANK = {
-    "control": ["neutral_00", "neutral_01"],
-    "context": ["mood_neg_00", "mood_pos_00"],
-    "loss": ["loss_fin_00", "loss_fin_00"]
+    "control": ["neutral_00", "neutral_01", "neutral_02", "neutral_03", "neutral_04"],
+    "context_pos": ["mood_pos_00"],
+    "context_neg": ["mood_neg_00"],
+    "context_missing": ["mood_null_00", "mood_null_01"],
+    "loss_fin": ["loss_fin_00", "loss_fin_01", "loss_fin_02", "loss_fin_03"],
+    "loss_streak": ['loss_streak_00', 'loss_streak_01', 'loss_streak_02', 'loss_streak_03']
 }
-
-
 
 def get_random_send_time(start_str, tz_str="Europe/Zurich"):
     parsed_time = parser.parse(start_str).time()
@@ -201,27 +202,72 @@ def schedule_notifications(assignments, participant_context_data):
 
 def randomize(participant_context_data):
     """
-    Randomizes participants into 'control', 'context', or 'loss' arms.
-    If a participant has missing step or sleep data, only randomize between 'control' and 'loss'.
-
-    Parameters:
-    - participant_context_data: dict keyed by participant ID with 'total_steps' and 'total_sleep_hours'
+    Assigns participants to groups based on context (steps/sleep).
+    If:
+    - Both steps and sleep are missing (0): 'context_missing'
+    - Only one is available: use that one for classification
+    - Both available:
+        - steps high + sleep high → 'context_pos'
+        - steps low + sleep high → 'context_pos'
+        - steps high + sleep low → 'context_neg'
+        - steps low + sleep low → 'context_neg'
 
     Returns:
-    - dict mapping participant ID to assigned group
+        dict mapping participant ID to group
     """
     assignments = {}
 
     for pid, context in participant_context_data.items():
-        has_steps = context.get("total_steps") is not None
-        # has_sleep = context.get("total_sleep_hours") is not None
-        has_sleep=True
+        steps = context.get("total_steps")
+        sleep = context.get("total_sleep_hours")
 
-        if has_steps and has_sleep:
-            group = random.choice(["control", "context", "loss"])
+        # Missing data handling
+        steps_available = steps is not None and steps > 0
+        sleep_available = sleep is not None and sleep > 0
+
+        if not steps_available and not sleep_available:
+            group = "context_missing"
         else:
-            group = random.choice(["control", "loss"])
+            steps_high = steps_available and (
+                (context.get("time_of_day") == "lunch" and steps >= 2500) or
+                (context.get("time_of_day") == "dinner" and steps >= 5000)
+            )
+
+            sleep_high = sleep_available and 6.5 <= sleep <= 9
+
+            if steps_available and not sleep_available:
+                group = "context_pos" if steps_high else "context_neg"
+            elif sleep_available and not steps_available:
+                group = "context_pos" if sleep_high else "context_neg"
+            else:
+                if steps_high and sleep_high:
+                    group = "context_pos"
+                elif steps_high and not sleep_high:
+                    group = "context_neg"
+                elif not steps_high and sleep_high:
+                    group = "context_pos"
+                else:
+                    group = "context_neg"
 
         assignments[pid] = group
 
     return assignments
+
+import requests
+
+def set_custom_field(access_token, project_id, participant_id, field_name, value):
+    url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/participants/{participant_id}/customfields"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        field_name: value
+    }
+
+    response = requests.put(url, headers=headers, json=payload)
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Failed to update field '{field_name}' for participant '{participant_id}': "
+            f"{response.status_code} - {response.text}"
+        )
