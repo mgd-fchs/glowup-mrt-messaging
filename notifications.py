@@ -18,13 +18,20 @@ SENT_LOG_KEY = "sent_log.json"
 
 # Mock notification bank
 NOTIFICATION_BANK = {
-    "control": ["neutral_00", "neutral_01", "neutral_02", "neutral_03", "neutral_04"],
-    "context_pos": ["mood_pos_00"],
-    "context_neg": ["mood_neg_00"],
-    "context_missing": ["mood_null_00", "mood_null_01"],
-    "loss_fin": ["loss_fin_00", "loss_fin_01", "loss_fin_02", "loss_fin_03"],
-    "loss_streak": ['loss_streak_00', 'loss_streak_01', 'loss_streak_02', 'loss_streak_03']
+    "control": [
+        "control_00", "control_01", "control_02", "control_03", "control_04"
+    ],
+    "dual_high": [
+        "context_high_00", "context_high_01", "context_high_02", "context_high_03", "context_high_04"
+    ],
+    "dual_low": [
+        "context_low_00", "context_low_01", "context_low_02", "context_low_03", "context_low_04"
+    ],
+    "single": [
+        "loss_00", "loss_01", "loss_02", "loss_03", "loss_04"
+    ]
 }
+
 
 def get_random_send_time(start_str, tz_str="Europe/Zurich"):
     parsed_time = parser.parse(start_str).time()
@@ -152,7 +159,7 @@ def send_notifications(service_access_token, project_id, participant_context_dat
 
 def schedule_notifications(assignments, participant_context_data):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
-
+    print(f"Participant data: {participant_context_data}")
     for pid, group in assignments.items():
         participant_context_data[pid]["group"] = group  # inject group info for later use
 
@@ -180,6 +187,30 @@ def schedule_notifications(assignments, participant_context_data):
                 print(f"{key} invalid time format '{mealtime_value}' — {e}")
                 continue
 
+            # Safely get values, defaulting to 0 if missing or None
+            tracking_count = participant_context_data[pid]['custom_fields'].get("TrackingCount")
+            print(f"Tracking count: {tracking_count}")
+            if not tracking_count:
+                tracking_count = 0
+            else: tracking_count = int(tracking_count)
+
+            surveys_delivered = participant_context_data[pid]['custom_fields'].get("SurveysDelivered")
+            print(f"Surveys delivered: {surveys_delivered}")
+            if surveys_delivered == 0:
+                surveys_delivered = 1
+            else: surveys_delivered = int(surveys_delivered)
+            # Calculate ratio with +1 in denominator to avoid division by zero
+            tracking_ratio = (tracking_count / (surveys_delivered)) * 100
+
+            # Dynamic group reassignment based on tracking ratioß
+            print(f"Ratio:{tracking_ratio}")
+            if group == "context":
+                if tracking_ratio >= 75:
+                    group = "dual_high"
+                else:
+                    group = "dual_low"
+
+            # Proceed with notification selection
             notification_options = NOTIFICATION_BANK.get(group, [])
             if not notification_options:
                 print(f"No notification for group '{group}' — skipping {key}")
@@ -202,76 +233,19 @@ def schedule_notifications(assignments, participant_context_data):
 
 def randomize(participant_context_data):
     """
-    Assigns participants to groups based on context (steps/sleep).
-    If:
-    - Both steps and sleep are missing (0): 'context_missing'
-    - Only one is available: use that one for classification
-    - Both available:
-        - steps high + sleep high → 'context_pos'
-        - steps low + sleep high → 'context_pos'
-        - steps high + sleep low → 'context_neg'
-        - steps low + sleep low → 'context_neg'
+    Randomizes participants into 'control', 'context', or 'loss' arms.
+    If a participant has missing step or sleep data, only randomize between 'control' and 'loss'.
+
+    Parameters:
+    - participant_context_data: dict keyed by participant ID with 'total_steps' and 'total_sleep_hours'
 
     Returns:
-        dict mapping participant ID to group
+    - dict mapping participant ID to assigned group
     """
     assignments = {}
 
     for pid, context in participant_context_data.items():
-        steps = context.get("total_steps")
-        sleep = context.get("total_sleep_hours")
-
-        # Missing data handling
-        steps_available = steps is not None and steps > 0
-        sleep_available = sleep is not None and sleep > 0
-
-        if not steps_available and not sleep_available:
-            group = "context_missing"
-        else:
-            steps_high = steps_available and (
-                (context.get("time_of_day") == "lunch" and steps >= 2500) or
-                (context.get("time_of_day") == "dinner" and steps >= 5000)
-            )
-
-            sleep_high = sleep_available and 6.5 <= sleep <= 9
-
-            if steps_available and not sleep_available:
-                group = "context_pos" if steps_high else "context_neg"
-            elif sleep_available and not steps_available:
-                group = "context_pos" if sleep_high else "context_neg"
-            else:
-                if steps_high and sleep_high:
-                    group = "context_pos"
-                elif steps_high and not sleep_high:
-                    group = "context_neg"
-                elif not steps_high and sleep_high:
-                    group = "context_pos"
-                else:
-                    group = "context_neg"
-
+        group = random.choice(["context", "control", "single"])
         assignments[pid] = group
 
     return assignments
-
-import requests
-
-def set_custom_field(access_token, project_id, participant_id, field_name, value):
-    url = f"https://designer.mydatahelps.org/api/v1/administration/projects/{project_id}/participants"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "participantIdentifier": participant_id,
-        "customFields": {
-            field_name: value
-        }
-    }
-
-    response = requests.put(url, headers=headers, json=payload)
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Failed to update field '{field_name}' for participant '{participant_id}': "
-            f"{response.status_code} – {response.text}"
-        )
