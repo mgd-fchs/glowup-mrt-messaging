@@ -1,26 +1,20 @@
 import time
-
 from jitai_utils import *
 from api_utils import *
 from notifications import *
-
 import apple_health as AppleHealth
 import health_connect as HealthConnect
 import google_fit as GoogleFit
 import fitbit as Fitbit
 
-
 def lambda_handler(event, context):
     print("Running MRT loop...")
-
     segment_ids = {
         "iOS": "fd09bd40-a26b-42b3-86af-4a59cbba489a",
         "Android": "2c3457ae-3c5b-4616-8480-e1e4ac750cdd",
         "Fitbit": "e1fc5eaf-e279-4e83-8a05-69831c352bd1"
     }
-
     access_token = get_service_access_token()
-
     active_participant_ids_by_platform = {}
     participant_context_data = {}
     all_active_participants = {}
@@ -34,9 +28,11 @@ def lambda_handler(event, context):
         active_participant_ids_by_platform[platform] = active_ids
         print(f"{platform} - Active participant IDs: {active_ids}")
 
-    # Query steps and sleep per participant
     for platform, participant_ids in active_participant_ids_by_platform.items():
         for pid in participant_ids:
+            daily_steps = {}
+            sleep_data = []
+            
             if platform == "iOS":
                 steps_data = AppleHealth.get_steps(access_token, project_id, pid, base_url)
                 sleep_data = AppleHealth.get_sleep(access_token, project_id, pid, base_url)
@@ -55,7 +51,6 @@ def lambda_handler(event, context):
             total_sleep_hours = total_sleep_ms / (1000 * 60 * 60)
 
             p_obj = all_active_participants.get(pid)
-
             participant_context_data[pid] = {
                 "platform": platform,
                 "total_steps": total_steps,
@@ -63,7 +58,9 @@ def lambda_handler(event, context):
                 "active_mealtimes": p_obj.get("active_mealtimes", []) if p_obj else [],
                 "custom_fields": p_obj.get("customFields", {}) if p_obj else {}
             }
-
+            participant_context_data[pid]["needs_sync_reminder"] = (
+                total_steps is None and total_sleep_hours == 0
+            )
             print(f"{platform} - {pid} - Steps: {total_steps}, Sleep (h): {total_sleep_hours:.2f}")
 
     assignments = randomize(participant_context_data)
@@ -73,10 +70,10 @@ def lambda_handler(event, context):
 
     check_and_increment_tracking(base_url, project_id, access_token, BUCKET)
     schedule_notifications(assignments, participant_context_data)
-
+    schedule_sync_reminders(participant_context_data)
     return {"status": "completed"}
 
 if __name__ == "__main__":
     while True:
         lambda_handler("fz", "cd")
-        time.sleep(300)  # wait 5 minutes
+        time.sleep(300)

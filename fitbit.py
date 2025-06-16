@@ -8,13 +8,13 @@ from api_utils import *
 def get_steps(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
-    today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+    observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
         "namespace": "Fitbit",
         "type": "Steps",
         "participantIdentifier": participant_identifier,
-        "observedAfter": today
+        "observedAfter": observed_after
     }
 
     headers = {
@@ -60,12 +60,12 @@ def aggregate_steps_by_source(data_points):
 def get_sleep(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
-    today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+    observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
         "namespace": "Fitbit",
         "participantIdentifier": participant_identifier,
-        "observedAfter": today
+        "observedAfter": observed_after
         # Type filter optional for Fitbit sleep
     }
 

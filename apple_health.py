@@ -6,15 +6,14 @@ from collections import defaultdict
 
 def get_steps(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
-    # TODO: Benefits of using V2?
 
-    today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+    observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
         "namespace": "AppleHealth",
         "type": "Steps",
         "participantIdentifier": participant_identifier,
-        "observedAfter": today
+        "observedAfter": observed_after
     }
 
     headers = {
@@ -23,8 +22,6 @@ def get_steps(service_access_token, project_id, participant_identifier, base_url
     }
 
     response = requests.get(url, headers=headers, params=params)
-    # print("Status:", response.status_code)
-    # print("Response:", response.text)
     response.raise_for_status()
 
     return response.json().get("deviceDataPoints", [])
@@ -61,12 +58,12 @@ def aggregate_steps_by_source(data_points):
 def get_sleep(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
 
-    today = datetime.combine(datetime.utcnow().date(), time.min).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+    observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
         "namespace": "AppleHealth",
         "participantIdentifier": participant_identifier,
-        "observedAfter": today
+        "observedAfter": observed_after
         # No "type": "Sleep Analysis"
     }
 
