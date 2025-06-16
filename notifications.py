@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import random
 from dateutil import parser
 from pytz import timezone as pytz_timezone
+from dateutil import parser
 
 BUCKET = "mrt-messages-logs"
 SENT_LOG_KEY = "sent_log.json"
@@ -74,7 +75,7 @@ def log_notification(bucket, participant_record):
 def log_notification_to_s3(record):
     BUCKET = "mrt-messages-logs"
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    log_key = f"logs/{date_str}.jsonl"
+    log_key = f"logs/{date_str}.json"
     s3 = boto3.client('s3')
     line = json.dumps(record) + "\n"
 
@@ -159,7 +160,7 @@ def send_notifications(service_access_token, project_id, participant_context_dat
 
 def schedule_notifications(assignments, participant_context_data):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
-    print(f"Participant data: {participant_context_data}")
+    # print(f"Participant data: {participant_context_data}")
     for pid, group in assignments.items():
         participant_context_data[pid]["group"] = group  # inject group info for later use
 
@@ -249,3 +250,117 @@ def randomize(participant_context_data):
         assignments[pid] = group
 
     return assignments
+
+
+def load_tracking_log(bucket, log_key):
+    s3 = boto3.client('s3')
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=log_key)
+        log = obj['Body'].read().decode('utf-8').splitlines()
+        return [json.loads(line) for line in log]
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            return []
+        else:
+            raise
+
+
+def log_tracking_update(bucket, log_key, entry):
+    s3 = boto3.client('s3')
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=log_key)
+        existing = obj['Body'].read().decode('utf-8')
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            existing = ""
+        else:
+            raise
+    updated = existing + json.dumps(entry) + "\n"
+    s3.put_object(Body=updated.encode('utf-8'), Bucket=bucket, Key=log_key)
+
+
+def check_and_increment_tracking(base_url, project_id, access_token, bucket):
+    url = f"{base_url}/api/v1/administration/projects/{project_id}/surveytasks"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json"
+    }
+
+    params = {
+        "pageSize": 200  # Adjust as needed
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code != 200:
+        print(f"Failed to fetch survey tasks: {response.status_code}, {response.text}")
+        return
+
+    today = datetime.now(timezone.utc).date()
+
+    completed_tasks = [
+        t for t in response.json().get("surveyTasks", [])
+        if (
+            t.get("status", "").lower() == "complete" and
+            t.get("surveyName") in {"meal_tracking_breakfast", "meal_tracking_lunch", "meal_tracking_dinner"} and
+            t.get("endDate") and
+            parser.parse(t["endDate"]).date() == today
+        )
+    ]
+
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    log_key = f"logs/tracking_{today_str}.json"
+    log_entries = load_tracking_log(bucket, log_key)
+    already_logged = set(
+        (entry["participantIdentifier"], entry["surveyName"], entry.get("endDate", "")[:10])
+        for entry in log_entries
+        if entry.get("endDate")  # only log entries with valid date
+    )
+    # print(f"Completed tasks: {completed_tasks}")
+    # print(f"Already logged: {already_logged}")
+
+    for task in completed_tasks:
+        pid = task.get("participantIdentifier")
+        survey_name = task.get("surveyName")
+        completed_time = task.get("endDate") or task.get("endDate")
+
+        if not pid or not survey_name or not completed_time:
+            continue
+
+        completion_day = completed_time[:10] if isinstance(completed_time, str) else completed_time.date().isoformat()
+
+        if (pid, survey_name, completion_day) in already_logged:
+            continue
+
+        # Fetch current custom field
+        participant_url = f"{base_url}/api/v1/administration/projects/{project_id}/participants/{pid}"
+        participant_resp = requests.get(participant_url, headers=headers)
+        if participant_resp.status_code != 200:
+            print(f"Failed to fetch participant {pid}: {participant_resp.status_code}")
+            continue
+
+        participant_data = participant_resp.json()
+        current_val = participant_data.get("customFields", {}).get("TrackingCount", 0)
+        try:
+            new_val = int(current_val) + 1
+        except:
+            new_val = 1
+
+        update_url = f"{base_url}/api/v1/administration/projects/{project_id}/participants"
+        update_payload = {
+            "participantIdentifier": pid,
+            "customFields": {
+                "TrackingCount": new_val
+            }
+        }
+
+        update_resp = requests.put(update_url, headers=headers, json=update_payload)
+        if update_resp.status_code == 200:
+            print(f"Updated TrackingCount for {pid} to {new_val}")
+            log_tracking_update(bucket, log_key, {
+                "participantIdentifier": pid,
+                "surveyName": survey_name,
+                "completedDate": completion_day,
+                "newTrackingCount": new_val
+            })
+        else:
+            print(f"Failed to update TrackingCount for {pid}: {update_resp.status_code}, {update_resp.text}")

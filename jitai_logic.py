@@ -41,10 +41,10 @@ def lambda_handler(event, context):
                 steps_data = AppleHealth.get_steps(access_token, project_id, pid, base_url)
                 sleep_data = AppleHealth.get_sleep(access_token, project_id, pid, base_url)
                 daily_steps = AppleHealth.aggregate_steps_by_source(steps_data)
-            elif platform == "Android":
-                steps_data = GoogleFit.get_steps(access_token, project_id, pid, base_url)
-                sleep_data = GoogleFit.get_sleep(access_token, project_id, pid, base_url)
-                daily_steps = GoogleFit.aggregate_steps_by_source(steps_data)
+            # elif platform == "Android":
+            #     steps_data = GoogleFit.get_steps(access_token, project_id, pid, base_url)
+            #     sleep_data = GoogleFit.get_sleep(access_token, project_id, pid, base_url)
+            #     daily_steps = GoogleFit.aggregate_steps_by_source(steps_data)
             elif platform == "Fitbit":
                 steps_data = Fitbit.get_steps(access_token, project_id, pid, base_url)
                 sleep_data = Fitbit.get_sleep(access_token, project_id, pid, base_url)
@@ -71,10 +71,10 @@ def lambda_handler(event, context):
         mealtimes = participant_context_data[pid].get("active_mealtimes", [])
         print(f"{pid} assigned to group: {group} | Active mealtime(s): {', '.join(mealtimes) if mealtimes else 'None'}")
 
+    check_and_increment_tracking(base_url, project_id, access_token, BUCKET)
     schedule_notifications(assignments, participant_context_data)
 
     return {"status": "completed"}
-
 
 if __name__ == "__main__":
     while True:
