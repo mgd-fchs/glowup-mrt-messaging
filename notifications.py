@@ -37,21 +37,6 @@ def get_random_send_time(start_str, tz_str="Europe/Zurich"):
 
     return send_time_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-def log_notification(bucket, participant_record):
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    log_key = f"logs/{date_str}.json"
-    s3 = boto3.client('s3')
-    line = json.dumps(participant_record) + "\n"
-    try:
-        obj = s3.get_object(Bucket=bucket, Key=log_key)
-        existing = obj['Body'].read().decode('utf-8')
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
-            existing = ""
-        else:
-            raise
-    updated = existing + line
-    s3.put_object(Body=updated.encode('utf-8'), Bucket=bucket, Key=log_key)
 
 def log_notification_to_s3(record):
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -156,11 +141,9 @@ def send_notifications(service_access_token, project_id, participant_context_dat
                 "total_steps": context.get("total_steps"),
                 "total_sleep_hours": context.get("total_sleep_hours")
             }
-            log_notification_to_s3(log_record)
+            save_log(BUCKET, "sent_log.json", sent_log)
         else:
             print(f"Failed to send to '{pid}' ({group}): {response.status_code} - {response.text}")
-
-    save_log(BUCKET, "sent_log.json", sent_log)
 
 
 def schedule_sync_reminders(participant_context_data):
@@ -172,22 +155,29 @@ def schedule_sync_reminders(participant_context_data):
             continue
 
         key = f"{pid}::sync"
-        existing = scheduled_log.get(key)
+        existing_entry = scheduled_log.get(key)
 
-        if existing:
+        if existing_entry:
             try:
-                last_time_str = existing["send_time"] if isinstance(existing, dict) else existing
-                last_time = datetime.fromisoformat(last_time_str.replace("Z", "+00:00"))
-                delta = now_utc - last_time
-                future_delta = last_time - now_utc
-                if (timedelta(0) <= future_delta <= timedelta(minutes=30)) or (delta < timedelta(hours=4)):
-                    print(f"{key} already scheduled recently or soon at {last_time} — skipping")
+                # Ensure we always treat scheduled_log[key] as a dict
+                if not isinstance(existing_entry, dict) or "send_time" not in existing_entry:
+                    print(f"Malformed existing entry for {key}, skipping scheduling.")
+                    continue
+
+                last_time = datetime.fromisoformat(existing_entry["send_time"].replace("Z", "+00:00"))
+
+                if last_time > now_utc:
+                    print(f"{key} already scheduled in the future at {last_time} — skipping")
+                    continue
+                elif (now_utc - last_time) < timedelta(hours=4):
+                    print(f"{key} was sent less than 4h ago at {last_time} — skipping")
                     continue
             except Exception as e:
-                print(f"Error parsing last sync reminder time for {key}: {e}")
+                print(f"Error parsing send_time for {key}: {e}")
+                continue
 
-        send_time = (now_utc + timedelta(minutes=random.randint(0, 10))).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        
+        send_time = (now_utc + timedelta(minutes=random.randint(0, 10))).isoformat().replace("+00:00", "Z")
+
         scheduled_log[key] = {
             "participant_id": pid,
             "mealtime": "NA",
@@ -198,6 +188,7 @@ def schedule_sync_reminders(participant_context_data):
         print(f"Scheduled sync_reminder for {pid} at {send_time}")
 
     save_log(BUCKET, "scheduled_log.json", scheduled_log)
+
 
 
 def schedule_notifications(assignments, participant_context_data):

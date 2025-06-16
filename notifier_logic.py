@@ -74,7 +74,7 @@ def lambda_handler(event=None, context=None):
             }
 
             sent_log[key] = log_entry
-            log_notification_to_s3(log_entry)
+            # log_notification_to_s3(log_entry)
             sent_now_count += 1
 
         else:
