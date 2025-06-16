@@ -162,6 +162,7 @@ def send_notifications(service_access_token, project_id, participant_context_dat
 
     save_log(BUCKET, "sent_log.json", sent_log)
 
+
 def schedule_sync_reminders(participant_context_data):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
     now_utc = datetime.now(timezone.utc)
@@ -170,30 +171,34 @@ def schedule_sync_reminders(participant_context_data):
         if not context.get("needs_sync_reminder"):
             continue
 
-        tags = context.get("active_mealtimes", []) or ["noslot"]
-        for tag in tags:
-            key = f"{pid}::sync::{tag}"
-            last_entry = scheduled_log.get(key, {})
-            last_time_str = last_entry.get("send_time") if isinstance(last_entry, dict) else last_entry
-            if last_time_str:
-                try:
-                    last_time = datetime.fromisoformat(last_time_str.replace("Z", "+00:00"))
-                    if now_utc - last_time < timedelta(hours=4):
-                        continue
-                except:
-                    pass
+        key = f"{pid}::sync"
+        existing = scheduled_log.get(key)
 
-            send_time = (now_utc + timedelta(minutes=random.randint(0, 10))).isoformat() + "Z"
-            scheduled_log[key] = {
-                "participant_id": pid,
-                "mealtime": tag,
-                "group": "sync_reminder",
-                "notification_id": "sync_reminder",
-                "send_time": send_time
-            }
-            print(f"Scheduled sync_reminder for {pid} at {send_time}")
+        if existing:
+            try:
+                last_time_str = existing["send_time"] if isinstance(existing, dict) else existing
+                last_time = datetime.fromisoformat(last_time_str.replace("Z", "+00:00"))
+                delta = now_utc - last_time
+                future_delta = last_time - now_utc
+                if (timedelta(0) <= future_delta <= timedelta(minutes=30)) or (delta < timedelta(hours=4)):
+                    print(f"{key} already scheduled recently or soon at {last_time} — skipping")
+                    continue
+            except Exception as e:
+                print(f"Error parsing last sync reminder time for {key}: {e}")
+
+        send_time = (now_utc + timedelta(minutes=random.randint(0, 10))).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        
+        scheduled_log[key] = {
+            "participant_id": pid,
+            "mealtime": "NA",
+            "group": "sync_reminder",
+            "notification_id": "sync_reminder",
+            "send_time": send_time
+        }
+        print(f"Scheduled sync_reminder for {pid} at {send_time}")
 
     save_log(BUCKET, "scheduled_log.json", scheduled_log)
+
 
 def schedule_notifications(assignments, participant_context_data):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
