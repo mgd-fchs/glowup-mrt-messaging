@@ -297,9 +297,9 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
     log_key = f"logs/tracking_{today_str}.json"
     log_entries = load_tracking_log(bucket, log_key)
     already_logged = set(
-        (entry["participantIdentifier"], entry["surveyName"], entry.get("endDate", "")[:10])
+        (entry["participantIdentifier"], entry["surveyName"], entry["completedDate"])
         for entry in log_entries
-        if entry.get("endDate")  # only log entries with valid date
+        if "completedDate" in entry
     )
     # print(f"Completed tasks: {completed_tasks}")
     # print(f"Already logged: {already_logged}")
