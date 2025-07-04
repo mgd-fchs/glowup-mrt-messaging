@@ -350,3 +350,63 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
             })
         else:
             print(f"Failed to update TrackingCount for {pid}: {update_resp.status_code}, {update_resp.text}")
+
+def has_incomplete_task_today(pid, mealtime, project_id, access_token):
+    if mealtime and mealtime.startswith("mealtime_") and "_" in mealtime[9:]:
+        mealtime = mealtime.split("_")[-1]
+
+    survey_map = {
+        "breakfast": "meal_tracking_breakfast",
+        "lunch": "meal_tracking_lunch",
+        "dinner": "meal_tracking_dinner"
+    }
+
+    if mealtime not in survey_map:
+        print(f"[WARN] Unknown mealtime: {mealtime} for participant {pid}")
+        return False
+
+    survey_name = survey_map[mealtime]
+
+    url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/surveytasks"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json"
+    }
+    params = {
+        "pageSize": 100,
+        "participantIdentifier": pid
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code != 200:
+        print(f"[ERROR] Failed to fetch tasks for {pid}: {response.status_code}")
+        return False
+
+    try:
+        tasks = response.json().get("surveyTasks", [])
+    except Exception as e:
+        print(f"[ERROR] Failed to parse JSON for {pid}: {e}")
+        return False
+
+    today = datetime.now(timezone.utc).date()
+
+    for task in tasks:
+        if task.get("surveyName") != survey_name:
+            continue
+
+        inserted_str = task.get("insertedDate")
+        if not inserted_str:
+            continue
+
+        try:
+            inserted_date = parser.parse(inserted_str).date()
+        except Exception:
+            continue
+
+        if inserted_date != today:
+            continue
+
+        if task.get("status", "").lower() == "incomplete":
+            return True
+
+    return False

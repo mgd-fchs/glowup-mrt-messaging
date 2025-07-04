@@ -52,6 +52,24 @@ def lambda_handler(event=None, context=None):
             future_count += 1
             continue
 
+        has_incomplete_tasks = has_incomplete_task_today(pid, mealtime, project_id, access_token)
+        print(f"Key: {key}")
+        print(f"Has incomplete: {has_incomplete_tasks}")
+
+        if not has_incomplete_tasks:
+            print(f"{pid} already completed {mealtime} today. Skipping notification.")
+            log_entry = {
+                "participant_id": pid,
+                "group": group,
+                "mealtime": mealtime,
+                "notification_id": notification_id,
+                "scheduled_time": scheduled_time_str,
+                "actual_send_time": None,
+                "skipped_due_to_completion": True
+            }
+            sent_log[key] = log_entry
+            continue
+
         # Time to send
         payload = [{
             "participantIdentifier": pid,
@@ -70,7 +88,8 @@ def lambda_handler(event=None, context=None):
                 "mealtime": mealtime,
                 "notification_id": notification_id,
                 "scheduled_time": scheduled_time_str,
-                "actual_send_time": now_utc.isoformat() + "Z"
+                "actual_send_time": now_utc.isoformat() + "Z",
+                "skipped_due_to_completion": False
             }
 
             sent_log[key] = log_entry
