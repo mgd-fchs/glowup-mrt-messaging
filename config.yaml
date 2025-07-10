@@ -1,0 +1,24 @@
+# APIs/Credentials
+base_url: 'https://mydatahelps.org'
+
+# Context (to base dynamic adaptation on)
+
+context_variables:
+  total_steps:
+    source: apple_health
+    method: get_steps
+    aggregation: max
+
+  sleep_hours:
+    source: fitbit
+    method: get_sleep
+    aggregation: sum_duration_hours
+
+  snores_per_minute:
+    source: custom_api
+    method: get_snore_rate
+    aggregation: latest
+
+  mood_rating:
+    source: survey
+    field: mood_slider

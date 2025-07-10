@@ -1,17 +1,16 @@
-from datetime import datetime, timedelta, time, timezone
-import pytz
+from datetime import datetime, time, timezone, timedelta
 import requests
 from collections import defaultdict
-from api_utils import *
+from utils.api_utils import *
 
 
 def get_steps(service_access_token, project_id, participant_identifier, base_url):
-    url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
+    url = f"{base_url}/api/v2/administration/projects/{project_id}/devicedatapoints"
 
     observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "Fitbit",
+        "namespace": "HealthConnect",
         "type": "Steps",
         "participantIdentifier": participant_identifier,
         "observedAfter": observed_after
@@ -33,7 +32,7 @@ def aggregate_steps_by_source(data_points):
     today = datetime.now(timezone.utc).date()
 
     for dp in data_points:
-        if dp.get("type") != "Steps":
+        if dp.get("type", "").lower() != "steps":
             continue
 
         try:
@@ -63,10 +62,10 @@ def get_sleep(service_access_token, project_id, participant_identifier, base_url
     observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "Fitbit",
+        "namespace": "HealthConnect",
         "participantIdentifier": participant_identifier,
         "observedAfter": observed_after
-        # Type filter optional for Fitbit sleep
+        # Let type be open; filter manually
     }
 
     headers = {
@@ -79,5 +78,5 @@ def get_sleep(service_access_token, project_id, participant_identifier, base_url
 
     data = response.json().get("deviceDataPoints", [])
 
-    # Filter only sleep-related entries if needed
+    # Filter entries containing sleep-related data
     return [dp for dp in data if "sleep" in dp.get("type", "").lower()]

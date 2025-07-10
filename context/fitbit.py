@@ -1,15 +1,17 @@
-from datetime import datetime, time, timezone, timedelta
+from datetime import datetime, timedelta, time, timezone
+import pytz
 import requests
 from collections import defaultdict
-from api_utils import *
+from utils.api_utils import *
+
 
 def get_steps(service_access_token, project_id, participant_identifier, base_url):
     url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
-    
+
     observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "GoogleFit",
+        "namespace": "Fitbit",
         "type": "Steps",
         "participantIdentifier": participant_identifier,
         "observedAfter": observed_after
@@ -23,7 +25,6 @@ def get_steps(service_access_token, project_id, participant_identifier, base_url
     response = requests.get(url, headers=headers, params=params)
     response.raise_for_status()
 
-    # print(response.json())
     return response.json().get("deviceDataPoints", [])
 
 
@@ -32,14 +33,13 @@ def aggregate_steps_by_source(data_points):
     today = datetime.now(timezone.utc).date()
 
     for dp in data_points:
-        if dp.get("type", "").lower() != "steps":
+        if dp.get("type") != "Steps":
             continue
 
         try:
             start_date = safe_parse_iso(dp["startDate"])
             if not start_date:
                 continue
-
         except Exception as e:
             print(f"Skipping invalid timestamp: {dp['startDate']} – {e}")
             continue
@@ -63,9 +63,10 @@ def get_sleep(service_access_token, project_id, participant_identifier, base_url
     observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
     params = {
-        "namespace": "GoogleFit",
+        "namespace": "Fitbit",
         "participantIdentifier": participant_identifier,
         "observedAfter": observed_after
+        # Type filter optional for Fitbit sleep
     }
 
     headers = {
@@ -78,5 +79,5 @@ def get_sleep(service_access_token, project_id, participant_identifier, base_url
 
     data = response.json().get("deviceDataPoints", [])
 
-    # Filter entries containing sleep-related data
+    # Filter only sleep-related entries if needed
     return [dp for dp in data if "sleep" in dp.get("type", "").lower()]

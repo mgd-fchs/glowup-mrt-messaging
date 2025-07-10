@@ -1,8 +1,8 @@
 import requests
 from datetime import datetime, timezone
 from notifications import *
-from api_utils import *
-from jitai_utils import *
+from utils.api_utils import *
+from utils.jitai_utils import *
 
 BUCKET = "mrt-messages-logs"
 

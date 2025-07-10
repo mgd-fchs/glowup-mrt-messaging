@@ -1,13 +1,23 @@
 import time
-from jitai_utils import *
-from api_utils import *
+import yaml
+
+from utils.jitai_utils import *
+from utils.api_utils import *
 from notifications import *
-import apple_health as AppleHealth
-import health_connect as HealthConnect
-import google_fit as GoogleFit
-import fitbit as Fitbit
+import context.apple_health as AppleHealth
+import context.health_connect as HealthConnect
+import context.google_fit as GoogleFit
+import context.fitbit as Fitbit
+
 
 def lambda_handler(event, context):
+    config = {}
+
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    load_dotenv()
+
     print("Running MRT loop...")
     segment_ids = {
         "iOS": "fd09bd40-a26b-42b3-86af-4a59cbba489a",

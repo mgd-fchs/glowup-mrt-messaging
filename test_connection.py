@@ -1,7 +1,7 @@
 # run_all.py
 
 import os
-from api_utils import get_service_access_token, get_from_api, get_participant_access_token
+from utils.api_utils import get_service_access_token, get_from_api, get_participant_access_token
 
 # Get a service access token
 service_access_token = get_service_access_token()

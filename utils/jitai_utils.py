@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import pytz
-import api_utils
+import utils.api_utils as api_utils
 
 def get_participants_by_segment(project_id, access_token, segment_id):
     participants = []

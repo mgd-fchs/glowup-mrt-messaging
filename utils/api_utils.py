@@ -8,6 +8,10 @@ import jwt
 import requests 
 from dateutil import parser
 from dotenv import load_dotenv
+import yaml
+
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
 
 load_dotenv()
 
@@ -15,7 +19,7 @@ load_dotenv()
 private_key = os.getenv('RKS_PRIVATE_KEY')
 service_account_name = os.getenv('RKS_SERVICE_ACCOUNT')
 project_id = os.getenv('RKS_PROJECT_ID')
-base_url = os.getenv('BASE_URL')
+base_url = config["base_url"]
 token_url = f'{base_url}/identityserver/connect/token'
 
 
