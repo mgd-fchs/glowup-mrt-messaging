@@ -44,17 +44,26 @@ def get_active_meal_window_participants(participants):
             print(f"Invalid timezone '{participant_tz_name}' for participant {p['id']}, defaulting to UTC: {e}")
             participant_tz = pytz.UTC
 
-        now_local = datetime.now(participant_tz).time()
+        now_local_dt = datetime.now(participant_tz)
+        now_local_time = now_local_dt.time()
+        weekday = now_local_dt.weekday()  # Monday = 0, Sunday = 6
+
+        # Choose prefix based on weekday
+        if weekday < 5:
+            prefix = "mealtime_mon_"
+        else:
+            prefix = "mealtime_we_"
 
         active_mealtimes = [
             key for key, value in custom_fields.items()
-            if key.startswith("mealtime_") and value and is_currently_in_mealtime_window(value, now_local)
+            if key.startswith(prefix) and value and is_currently_in_mealtime_window(value, now_local_time)
         ]
 
         if active_mealtimes:
-            p["active_mealtimes"] = active_mealtimes  # Add to participant dict
+            p["active_mealtimes"] = active_mealtimes
             active_participants.append(p)
 
     return active_participants
+
 
 

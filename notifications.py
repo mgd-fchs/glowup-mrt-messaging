@@ -24,7 +24,7 @@ def get_random_send_time(start_str, tz_str="Europe/Zurich"):
     tz = pytz_timezone(tz_str)
     today = datetime.now(tz).date()
     start_dt = tz.localize(datetime.combine(today, parsed_time))
-    end_dt = start_dt + timedelta(hours=2)
+    end_dt = start_dt + timedelta(minutes=30)
 
     now_local = datetime.now(tz)
     if now_local > end_dt:
@@ -194,6 +194,7 @@ def schedule_sync_reminders(participant_context_data):
 def schedule_notifications(assignments, participant_context_data):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
     for pid, group in assignments.items():
+        tz_str = participant_context_data[pid].get("demographics", {}).get("timeZone", "UTC")
         participant_context_data[pid]["group"] = group
         mealtimes = participant_context_data.get(pid, {}).get("active_mealtimes", [])
         if not mealtimes:
@@ -210,7 +211,7 @@ def schedule_notifications(assignments, participant_context_data):
                 print(f"{key} missing mealtime value in custom fields — skipping.")
                 continue
             try:
-                send_time = get_random_send_time(mealtime_value)
+                send_time = get_random_send_time(mealtime_value, tz_str=tz_str)
             except Exception as e:
                 print(f"{key} invalid time format '{mealtime_value}' — {e}")
                 continue
