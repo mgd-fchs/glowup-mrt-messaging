@@ -1,82 +1,91 @@
 import time
 import yaml
+from dotenv import load_dotenv
 
 from utils.jitai_utils import *
 from utils.api_utils import *
 from notifications import *
-import context.apple_health as AppleHealth
-import context.health_connect as HealthConnect
-import context.google_fit as GoogleFit
-import context.fitbit as Fitbit
-
+from core.participant import Participant  # import your new class
 
 def lambda_handler(event, context):
-    config = {}
-
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     load_dotenv()
+    base_url = config["base_url"]
+    segment_ids = config["segment_ids"]
+    signal_config = config.get("signals", {})
+    context_config = config.get("context_providers", {})
+    decision_points_config = config.get("decision_points", {})
+
+    with open("api_config.yaml", "r") as api_file:
+        api_config = yaml.safe_load(api_file)
+    CONTEXT_PROVIDERS = load_context_providers(context_config, shared_config=api_config)
 
     print("Running MRT loop...")
-    segment_ids = {
-        "iOS": "fd09bd40-a26b-42b3-86af-4a59cbba489a",
-        "Android": "2c3457ae-3c5b-4616-8480-e1e4ac750cdd",
-        "Fitbit": "e1fc5eaf-e279-4e83-8a05-69831c352bd1"
-    }
     access_token = get_service_access_token()
-    active_participant_ids_by_platform = {}
-    participant_context_data = {}
     all_active_participants = {}
+    participant_context_data = {}
+
+    now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
 
     for platform, seg_id in segment_ids.items():
         segment_participants = get_participants_by_segment(project_id, access_token, seg_id)
-        active_participants = get_active_meal_window_participants(segment_participants)
-        for p in active_participants:
-            all_active_participants[p["participantIdentifier"]] = p
-        active_ids = [p["participantIdentifier"] for p in active_participants]
-        active_participant_ids_by_platform[platform] = active_ids
-        print(f"{platform} - Active participant IDs: {active_ids}")
 
-    for platform, participant_ids in active_participant_ids_by_platform.items():
-        for pid in participant_ids:
-            daily_steps = {}
-            sleep_data = []
-            
-            if platform == "iOS":
-                steps_data = AppleHealth.get_steps(access_token, project_id, pid, base_url)
-                sleep_data = AppleHealth.get_sleep(access_token, project_id, pid, base_url)
-                daily_steps = AppleHealth.aggregate_steps_by_source(steps_data)
-            # elif platform == "Android":
-            #     steps_data = GoogleFit.get_steps(access_token, project_id, pid, base_url)
-            #     sleep_data = GoogleFit.get_sleep(access_token, project_id, pid, base_url)
-            #     daily_steps = GoogleFit.aggregate_steps_by_source(steps_data)
-            elif platform == "Fitbit":
-                steps_data = Fitbit.get_steps(access_token, project_id, pid, base_url)
-                sleep_data = Fitbit.get_sleep(access_token, project_id, pid, base_url)
-                daily_steps = Fitbit.aggregate_steps_by_source(steps_data)
+        for raw_p in segment_participants:
+            participant = Participant.from_api(raw_p, platform)
 
-            total_steps = max(daily_steps.values()) if daily_steps else None
-            total_sleep_ms = sum([s.get("duration", 0) for s in sleep_data])
-            total_sleep_hours = total_sleep_ms / (1000 * 60 * 60)
+            if not any(is_available_for_decision(now_utc, raw_p, dp_cfg) for dp_cfg in decision_points_config.values()):
+                continue
 
-            p_obj = all_active_participants.get(pid)
-            participant_context_data[pid] = {
-                "platform": platform,
-                "total_steps": total_steps,
-                "total_sleep_hours": total_sleep_hours,
-                "active_mealtimes": p_obj.get("active_mealtimes", []) if p_obj else [],
-                "custom_fields": p_obj.get("customFields", {}) if p_obj else {}
+            all_active_participants[participant.id] = participant
+
+            provider = CONTEXT_PROVIDERS.get(platform)
+            if not provider:
+                print(f"No provider module for platform {platform} — skipping")
+                continue
+
+            participant_signals = {}
+
+            for signal_name, signal_info in signal_config.items():
+                method_name = signal_info.get("method")
+                aggregate_name = signal_info.get("aggregate")
+                required = signal_info.get("required", False)
+
+                try:
+                    fetch_func = getattr(provider, method_name)
+                    raw_data = fetch_func(access_token, participant.id)
+
+                    value = (getattr(provider, aggregate_name)(raw_data, participant.timezone)
+                             if aggregate_name else raw_data)
+                    participant_signals[signal_name] = value
+                except Exception as e:
+                    print(f"[WARN] Failed to get signal '{signal_name}' for {participant.id} on {platform}: {e}")
+                    if required:
+                        participant_signals[signal_name] = None
+
+            participant_context_data[participant.id] = {
+                "platform": participant.platform,
+                "custom_fields": participant.custom_fields,
+                **participant_signals
             }
-            participant_context_data[pid]["needs_sync_reminder"] = (
-                total_steps is None and total_sleep_hours == 0
+
+            sync_logic = config.get("sync_reminder_logic", {})
+            participant_context_data[participant.id]["needs_sync_reminder"] = evaluate_sync_reminder(
+                participant_signals, sync_logic
             )
-            print(f"{platform} - {pid} - Steps: {total_steps}, Sleep (h): {total_sleep_hours:.2f}")
+
+            signal_summary = ", ".join(
+                f"{k}: {v:.2f}" if isinstance(v, float)
+                else f"{k}: {v}" if v is not None
+                else f"{k}: NA"
+                for k, v in participant_signals.items()
+            )
+            print(f"{platform} - {participant.id} | {signal_summary}")
 
     assignments = randomize(participant_context_data)
     for pid, group in assignments.items():
-        mealtimes = participant_context_data[pid].get("active_mealtimes", [])
-        print(f"{pid} assigned to group: {group} | Active mealtime(s): {', '.join(mealtimes) if mealtimes else 'None'}")
+        print(f"{pid} assigned to group: {group}")
 
     check_and_increment_tracking(base_url, project_id, access_token, BUCKET)
     schedule_notifications(assignments, participant_context_data)

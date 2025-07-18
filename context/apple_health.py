@@ -1,81 +1,115 @@
-from datetime import datetime, timedelta, time, timezone
-import pytz  # pip install pytz if not already
-import requests
+from datetime import datetime, timedelta, timezone
+from pytz import timezone as pytz_timezone
 from collections import defaultdict
+import requests
 
+from .base_context_provider import ContextProvider
 
-def get_steps(service_access_token, project_id, participant_identifier, base_url):
-    url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
+class Provider(ContextProvider):
+    def __init__(self):
+        super().__init__()
 
-    observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+    def setup(self, config: dict):
+        self.namespace = "AppleHealth"
+        self.config = config
+        self.base_url = config.get("base_url")
+        self.project_id = config.get("project_id")
 
-    params = {
-        "namespace": "AppleHealth",
-        "type": "Steps",
-        "participantIdentifier": participant_identifier,
-        "observedAfter": observed_after
-    }
+    def get_steps(self, access_token, participant_identifier):
+        url = f"{self.base_url}/api/v1/administration/projects/{self.project_id}/devicedatapoints"
+        observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
-    headers = {
-        "Authorization": f"Bearer {service_access_token}",
-        "Accept": "application/json"
-    }
+        params = {
+            "namespace": self.namespace,
+            "type": "Steps",
+            "participantIdentifier": participant_identifier,
+            "observedAfter": observed_after
+        }
 
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json"
+        }
 
-    return response.json().get("deviceDataPoints", [])
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json().get("deviceDataPoints", [])
 
+    def aggregate_steps(self, data_points, participant_tz="Europe/Zurich"):
+        step_totals = defaultdict(int)
+        tz = pytz_timezone(participant_tz)
+        
+        # Current date in participant's timezone
+        now_local = datetime.now(tz)
+        today_local = now_local.date()
 
-def aggregate_steps_by_source(data_points):
-    step_totals = defaultdict(int)
-    today = datetime.now(timezone.utc).date()
+        for dp in data_points:
+            if dp.get("type") != "Steps":
+                continue
+            try:
+                # Parse and localize timestamp
+                start_dt = datetime.fromisoformat(dp["startDate"].replace("Z", "+00:00"))
+                start_local = start_dt.astimezone(tz)
+            except Exception as e:
+                print(f"Skipping invalid timestamp: {dp.get('startDate')} – {e}")
+                continue
 
-    for dp in data_points:
-        if dp.get("type") != "Steps":
-            continue
+            # Check if the timestamp is from the participant's "today"
+            if start_local.date() != today_local:
+                print("Not today:", dp)
+                continue
 
-        # Parse the start date and convert to UTC-aware datetime
-        try:
-            start_date = datetime.fromisoformat(dp["startDate"].replace("Z", "+00:00"))
-        except Exception as e:
-            print(f"Skipping invalid timestamp: {dp['startDate']} – {e}")
-            continue
+            try:
+                source_name = dp["source"]["properties"].get("SourceName", "Unknown Source")
+                step_value = int(float(dp["value"]))
+                step_totals[source_name] += step_value
+            except Exception as e:
+                print(f"Error parsing entry: {e}")
 
-        if start_date.date() != today:
-            continue  # skip data points not from today
+        print(f"[{participant_tz}] Aggregation res: {dict(step_totals)}")
+        return dict(step_totals)
 
-        try:
-            source_name = dp["source"]["properties"].get("SourceName", "Unknown Source")
-            step_value = int(float(dp["value"]))
-            step_totals[source_name] += step_value
-        except Exception as e:
-            print(f"Error parsing entry: {e}")
+    def get_sleep(self, access_token, participant_identifier):
+        url = f"{self.base_url}/api/v1/administration/projects/{self.project_id}/devicedatapoints"
+        observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
 
-    return dict(step_totals)
+        params = {
+            "namespace": self.namespace,
+            "participantIdentifier": participant_identifier,
+            "observedAfter": observed_after
+        }
 
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json"
+        }
 
-def get_sleep(service_access_token, project_id, participant_identifier, base_url):
-    url = f"{base_url}/api/v1/administration/projects/{project_id}/devicedatapoints"
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json().get("deviceDataPoints", [])
 
-    observed_after = (datetime.utcnow() - timedelta(hours=24)).replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+        return [dp for dp in data if dp.get("type") == "Sleep Analysis"]
 
-    params = {
-        "namespace": "AppleHealth",
-        "participantIdentifier": participant_identifier,
-        "observedAfter": observed_after
-        # No "type": "Sleep Analysis"
-    }
+    def aggregate_sleep(self, data_points, participant_tz="Europe/Zurich"):
+        tz = pytz_timezone(participant_tz)
+        today_local = datetime.now(tz).date()
+        total_sleep_ms = 0
 
-    headers = {
-        "Authorization": f"Bearer {service_access_token}",
-        "Accept": "application/json"
-    }
+        for dp in data_points:
+            try:
+                if dp.get("type") != "Sleep Analysis":
+                    continue
 
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
+                start = datetime.fromisoformat(dp["startDate"].replace("Z", "+00:00")).astimezone(tz)
+                end = datetime.fromisoformat(dp["endDate"].replace("Z", "+00:00")).astimezone(tz)
 
-    data = response.json().get("deviceDataPoints", [])
+                if start.date() != today_local:
+                    continue
 
-    # Filter only Sleep Analysis entries
-    return [dp for dp in data if dp.get("type") == "Sleep Analysis"]
+                if dp.get("value") in ["Asleep", "InBed"]:
+                    duration_ms = (end - start).total_seconds() * 1000
+                    total_sleep_ms += duration_ms
+            except Exception as e:
+                print(f"[WARN] Error parsing sleep point: {e}")
+
+        return total_sleep_ms / (1000 * 60 * 60)  # hours

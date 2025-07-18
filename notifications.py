@@ -1,5 +1,6 @@
 import requests
 import random
+import yaml
 from datetime import datetime, timedelta, timezone
 import boto3
 import json
@@ -8,6 +9,12 @@ from dateutil import parser
 from s3_utils import *
 from zoneinfo import ZoneInfo
 from pytz import timezone as pytz_timezone
+
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
+NOTIFICATION_BANK = config.get("arms", {})
+SURVEY_MAP = config.get("survey_map", {})
 
 BUCKET = "mrt-messages-logs"
 SENT_LOG_KEY = "sent_log.json"
@@ -355,17 +362,11 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
     if mealtime and mealtime.startswith("mealtime_") and "_" in mealtime[9:]:
         mealtime = mealtime.split("_")[-1]
 
-    survey_map = {
-        "breakfast": "meal_tracking_breakfast",
-        "lunch": "meal_tracking_lunch",
-        "dinner": "meal_tracking_dinner"
-    }
+    survey_name = SURVEY_MAP.get(mealtime)
 
-    if mealtime not in survey_map:
+    if not survey_name:
         print(f"[WARN] Unknown mealtime: {mealtime} for participant {pid}")
         return False
-
-    survey_name = survey_map[mealtime]
 
     url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/surveytasks"
     headers = {

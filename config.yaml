@@ -1,24 +1,86 @@
 # APIs/Credentials
-base_url: 'https://mydatahelps.org'
+base_url: https://mydatahelps.org
 
-# Context (to base dynamic adaptation on)
+# Context (classes/functions that collect necessary infos/signals from the API)
+context_providers:
+  iOS: context.apple_health
+  Android: context.health_connect
+  Fitbit: context.fitbit
 
-context_variables:
-  total_steps:
-    source: apple_health
+segment_ids:
+  iOS: fd09bd40-a26b-42b3-86af-4a59cbba489a
+  Android: 2c3457ae-3c5b-4616-8480-e1e4ac750cdd
+  Fitbit: e1fc5eaf-e279-4e83-8a05-69831c352bd1
+
+# Intervention options
+arms:
+  control: ["control_00", "control_01", "control_02", "control_03", "control_04"]
+  dual_high: ["context_high_00", "context_high_01", "context_high_02", "context_high_03", "context_high_04"]
+  dual_low: ["context_low_00", "context_low_01", "context_low_02", "context_low_03", "context_low_04"]
+  single: ["loss_00", "loss_01", "loss_02", "loss_03", "loss_04"]
+  sync_reminder: ["sync_reminder"]
+
+survey_map:
+  breakfast: meal_tracking_breakfast
+  lunch: meal_tracking_lunch
+  dinner: meal_tracking_dinner
+
+sync_reminder_logic:
+  conditions:
+    - signal: steps
+      condition: null  # means value is missing
+    - signal: sleep
+      condition: "== 0"
+
+decision_points:
+  # morning_fixed:
+  #   strategy: fixed_time
+  #   time: "08:00"
+  #   timezone_field: "customFields.timezone"  # optional override
+
+  # afternoon_random:
+  #   strategy: random_window
+  #   window:
+  #     start: "12:00"
+  #     end: "20:00"
+  #     count: 1
+  #   timezone_field: "customFields.timezone"
+
+  # user_defined_evening:
+  #   strategy: user_defined
+  #   context_key: "customFields.evening_time"  # should be list of times
+    breakfast_relative:
+    strategy: random_relative_window
+    base_time_field: "customFields.mealtime_mon_breakfast"
+    offset_minutes: 120
+    count: 1
+    timezone_field: "customFields.timezone"
+
+    lunch_relative:
+      strategy: random_relative_window
+      base_time_field: "customFields.mealtime_mon_lunch"
+      offset_minutes: 120
+      count: 1
+      timezone_field: "customFields.timezone"
+
+    dinner_relative:
+      strategy: random_relative_window
+      base_time_field: "customFields.mealtime_mon_dinner"
+      offset_minutes: 120
+      count: 1
+      timezone_field: "customFields.timezone"
+
+
+# Contextual signals collected from the API --> decision rules will be made based on their values
+signals:
+  steps:
     method: get_steps
-    aggregation: max
+    aggregate: aggregate_steps
+    type: int
+    required: true
 
-  sleep_hours:
-    source: fitbit
+  sleep:
     method: get_sleep
-    aggregation: sum_duration_hours
-
-  snores_per_minute:
-    source: custom_api
-    method: get_snore_rate
-    aggregation: latest
-
-  mood_rating:
-    source: survey
-    field: mood_slider
+    aggregate: aggregate_sleep
+    type: float
+    required: false
