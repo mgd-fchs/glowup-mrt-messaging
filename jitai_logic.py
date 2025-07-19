@@ -56,7 +56,8 @@ def lambda_handler(event, context):
                 "total_steps": total_steps,
                 "total_sleep_hours": total_sleep_hours,
                 "active_mealtimes": p_obj.get("active_mealtimes", []) if p_obj else [],
-                "custom_fields": p_obj.get("customFields", {}) if p_obj else {}
+                "custom_fields": p_obj.get("customFields", {}) if p_obj else {},
+                "demographics": p_obj.get("demographics", {}) if p_obj else {}
             }
             participant_context_data[pid]["needs_sync_reminder"] = (
                 total_steps is None and total_sleep_hours == 0

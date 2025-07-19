@@ -194,7 +194,10 @@ def schedule_sync_reminders(participant_context_data):
 def schedule_notifications(assignments, participant_context_data):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
     for pid, group in assignments.items():
-        tz_str = participant_context_data[pid].get("demographics", {}).get("timeZone", "UTC")
+        print(participant_context_data[pid])
+        tz_str = participant_context_data[pid].get("demographics", {}).get("timeZone")
+        print(f"[DEBUG] Timezone for scheduling for participant {pid}: {tz_str}")
+        
         participant_context_data[pid]["group"] = group
         mealtimes = participant_context_data.get(pid, {}).get("active_mealtimes", [])
         if not mealtimes:
@@ -212,6 +215,7 @@ def schedule_notifications(assignments, participant_context_data):
                 continue
             try:
                 send_time = get_random_send_time(mealtime_value, tz_str=tz_str)
+                print(f"[DEBUG] Scheduled time for participant {participant_context_data[pid]}: {send_time}")
             except Exception as e:
                 print(f"{key} invalid time format '{mealtime_value}' — {e}")
                 continue
@@ -284,6 +288,8 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
 
     today = datetime.now(timezone.utc).date()
 
+    print(f"[DEBUG] For task completion, today is {today}")
+
     completed_tasks = [
         t for t in response.json().get("surveyTasks", [])
         if (
@@ -352,9 +358,15 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
         else:
             print(f"Failed to update TrackingCount for {pid}: {update_resp.status_code}, {update_resp.text}")
 
+
 def has_incomplete_task_today(pid, mealtime, project_id, access_token):
-    if mealtime and mealtime.startswith("mealtime_") and "_" in mealtime[9:]:
-        mealtime = mealtime.split("_")[-1]
+
+    # Extract just the part indicating the meal type
+    if mealtime and mealtime.startswith("mealtime_"):
+        parts = mealtime.split("_")
+        mealtime_type = parts[-1]  # works for mealtime_mon_breakfast, etc.
+    else:
+        mealtime_type = mealtime
 
     survey_map = {
         "breakfast": "meal_tracking_breakfast",
@@ -362,12 +374,11 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
         "dinner": "meal_tracking_dinner"
     }
 
-    if mealtime not in survey_map:
-        print(f"[WARN] Unknown mealtime: {mealtime} for participant {pid}")
-        return False
+    if mealtime_type not in survey_map:
+        print(f"[WARN] Unknown or irrelevant mealtime '{mealtime}' for participant {pid} — skipping check")
+        return True  # Fallback: treat as incomplete to be safe
 
-    survey_name = survey_map[mealtime]
-
+    survey_name = survey_map[mealtime_type]
     url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/surveytasks"
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -381,16 +392,16 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
     response = requests.get(url, headers=headers, params=params)
     if response.status_code != 200:
         print(f"[ERROR] Failed to fetch tasks for {pid}: {response.status_code}")
-        return False
+        return True  # Fallback to 'incomplete'
 
     try:
         tasks = response.json().get("surveyTasks", [])
     except Exception as e:
-        print(f"[ERROR] Failed to parse JSON for {pid}: {e}")
-        return False
+        print(f"[ERROR] Failed to parse surveyTasks for {pid}: {e}")
+        return True
 
-    today = datetime.now(timezone.utc).date()
-
+    today_utc = datetime.now(timezone.utc).date() # TODO adapt to participants' timezone
+    found_task = False
     for task in tasks:
         if task.get("surveyName") != survey_name:
             continue
@@ -400,14 +411,23 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
             continue
 
         try:
-            inserted_date = parser.parse(inserted_str).date()
+            inserted_dt = parser.parse(inserted_str).astimezone(timezone.utc)
         except Exception:
             continue
 
-        if inserted_date != today:
+        if inserted_dt.date() != today_utc:
             continue
 
-        if task.get("status", "").lower() == "incomplete":
-            return True
+        found_task = True
+        task_status = task.get("status", "").lower()
+        print(f"[DEBUG] {pid} — found '{survey_name}' inserted at {inserted_dt.isoformat()} with status '{task_status}'")
 
-    return False
+        if task_status == "incomplete":
+            return True  # eligible to send
+
+    if not found_task:
+        print(f"[DEBUG] No {survey_name} task found for {pid} today.")
+    else:
+        print(f"[DEBUG] {pid} already completed {survey_name} today.")
+
+    return False  # default: do not send
