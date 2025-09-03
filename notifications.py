@@ -13,10 +13,10 @@ BUCKET = "mrt-messages-logs"
 SENT_LOG_KEY = "sent_log.json"
 
 NOTIFICATION_BANK = {
-    "control": ["control_00", "control_01", "control_02", "control_03", "control_04"],
-    "dual_high": ["context_high_00", "context_high_01", "context_high_02", "context_high_03", "context_high_04"],
-    "dual_low": ["context_low_00", "context_low_01", "context_low_02", "context_low_03", "context_low_04"],
-    "single": ["loss_00", "loss_01", "loss_02", "loss_03", "loss_04"]
+    "control": ["control_00", "control_01", "control_02", "control_03", "control_04", "control_05", "control_06", "control_07", "control_08", "control_09", "control_10", "control_11", "control_12", "control_13", "control_14"],
+    "dual_high": ["context_high_00", "context_high_01", "context_high_02", "context_high_03", "context_high_04", "context_high_05", "context_high_06", "context_high_07", "context_high_08", "context_high_09", "context_high_10", "context_high_11", "context_high_12", "context_high_13", "context_high_14"],
+    "dual_low": ["context_low_00", "context_low_01", "context_low_02", "context_low_03", "context_low_04", "context_low_05", "context_low_06", "context_low_07", "context_low_08", "context_low_09", "context_low_10", "context_low_11", "context_low_12", "context_low_13", "context_low_14"],
+    "single": ["loss_00", "loss_01", "loss_02", "loss_03", "loss_04", "loss_05", "loss_06", "loss_07", "loss_08", "loss_09", "loss_10", "loss_11", "loss_12", "loss_13", "loss_14"]
 }
 
 def get_random_send_time(start_str, tz_str="Europe/Zurich"):
