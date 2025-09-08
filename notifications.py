@@ -19,6 +19,12 @@ NOTIFICATION_BANK = {
     "single": ["loss_00", "loss_01", "loss_02", "loss_03", "loss_04", "loss_05", "loss_06", "loss_07", "loss_08", "loss_09", "loss_10", "loss_11", "loss_12", "loss_13", "loss_14"]
 }
 
+### IF ENGLISH VERSION
+NOTIFICATION_BANK = {
+    key: [f"{nid}_en" for nid in ids]
+    for key, ids in NOTIFICATION_BANK.items()
+}
+
 def get_random_send_time(start_str, tz_str="Europe/Zurich"):
     parsed_time = parser.parse(start_str).time()
     tz = pytz_timezone(tz_str)
