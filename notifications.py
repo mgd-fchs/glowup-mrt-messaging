@@ -121,7 +121,9 @@ def send_notifications(service_access_token, project_id, participant_context_dat
         notification_options = NOTIFICATION_BANK.get(group, [])
         if not notification_options:
             if group == "sync_reminder":
-                notification_options = ["sync_reminder"]
+                # notification_options = ["sync_reminder"]
+                # IF ENGLISH
+                notification_options = ["sync_reminder_en"]
             else:
                 print(f"No messages available for group '{group}' – skipping {key}")
                 continue
