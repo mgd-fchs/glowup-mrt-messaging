@@ -186,11 +186,20 @@ def schedule_sync_reminders(participant_context_data):
 
         send_time = (now_utc + timedelta(minutes=random.randint(0, 10))).isoformat().replace("+00:00", "Z")
 
+        # scheduled_log[key] = {
+        #     "participant_id": pid,
+        #     "mealtime": "NA",
+        #     "group": "sync_reminder",
+        #     "notification_id": "sync_reminder",
+        #     "send_time": send_time
+        # }
+
+        # IF ENGLISH
         scheduled_log[key] = {
             "participant_id": pid,
             "mealtime": "NA",
             "group": "sync_reminder",
-            "notification_id": "sync_reminder",
+            "notification_id": "sync_reminder_en",
             "send_time": send_time
         }
         print(f"Scheduled sync_reminder for {pid} at {send_time}")
