@@ -19,11 +19,11 @@ NOTIFICATION_BANK = {
     "single": ["loss_00", "loss_01", "loss_02", "loss_03", "loss_04", "loss_05", "loss_06", "loss_07", "loss_08", "loss_09", "loss_10", "loss_11", "loss_12", "loss_13", "loss_14"]
 }
 
-### IF ENGLISH VERSION
-NOTIFICATION_BANK = {
-    key: [f"{nid}_en" for nid in ids]
-    for key, ids in NOTIFICATION_BANK.items()
-}
+# ### IF ENGLISH VERSION
+# NOTIFICATION_BANK = {
+#     key: [f"{nid}_en" for nid in ids]
+#     for key, ids in NOTIFICATION_BANK.items()
+# }
 
 def get_random_send_time(start_str, tz_str="Europe/Zurich"):
     parsed_time = parser.parse(start_str).time()
@@ -121,9 +121,9 @@ def send_notifications(service_access_token, project_id, participant_context_dat
         notification_options = NOTIFICATION_BANK.get(group, [])
         if not notification_options:
             if group == "sync_reminder":
-                # notification_options = ["sync_reminder"]
+                notification_options = ["sync_reminder"]
                 # IF ENGLISH
-                notification_options = ["sync_reminder_en"]
+                # notification_options = ["sync_reminder_en"]
             else:
                 print(f"No messages available for group '{group}' – skipping {key}")
                 continue
@@ -186,22 +186,22 @@ def schedule_sync_reminders(participant_context_data):
 
         send_time = (now_utc + timedelta(minutes=random.randint(0, 10))).isoformat().replace("+00:00", "Z")
 
-        # scheduled_log[key] = {
-        #     "participant_id": pid,
-        #     "mealtime": "NA",
-        #     "group": "sync_reminder",
-        #     "notification_id": "sync_reminder",
-        #     "send_time": send_time
-        # }
-
-        # IF ENGLISH
         scheduled_log[key] = {
             "participant_id": pid,
             "mealtime": "NA",
             "group": "sync_reminder",
-            "notification_id": "sync_reminder_en",
+            "notification_id": "sync_reminder",
             "send_time": send_time
         }
+
+        # # IF ENGLISH
+        # scheduled_log[key] = {
+        #     "participant_id": pid,
+        #     "mealtime": "NA",
+        #     "group": "sync_reminder",
+        #     "notification_id": "sync_reminder_en",
+        #     "send_time": send_time
+        # }
         print(f"Scheduled sync_reminder for {pid} at {send_time}")
 
     save_log(BUCKET, "scheduled_log.json", scheduled_log)
@@ -307,26 +307,26 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
 
     print(f"[DEBUG] For task completion, today is {today}")
 
-    # completed_tasks = [
-    #     t for t in response.json().get("surveyTasks", [])
-    #     if (
-    #         t.get("status", "").lower() == "complete" and
-    #         t.get("surveyName") in {"meal_tracking_breakfast", "meal_tracking_lunch", "meal_tracking_dinner"} and
-    #         t.get("endDate") and
-    #         parser.parse(t["endDate"]).date() == today
-    #     )
-    # ]
-
-    # IF ENGLISH
     completed_tasks = [
         t for t in response.json().get("surveyTasks", [])
         if (
             t.get("status", "").lower() == "complete" and
-            t.get("surveyName") in {"log_breakfast_en", "log_lunch_en", "log_dinner_en"} and
+            t.get("surveyName") in {"meal_tracking_breakfast", "meal_tracking_lunch", "meal_tracking_dinner"} and
             t.get("endDate") and
             parser.parse(t["endDate"]).date() == today
         )
     ]
+
+    # # IF ENGLISH
+    # completed_tasks = [
+    #     t for t in response.json().get("surveyTasks", [])
+    #     if (
+    #         t.get("status", "").lower() == "complete" and
+    #         t.get("surveyName") in {"log_breakfast_en", "log_lunch_en", "log_dinner_en"} and
+    #         t.get("endDate") and
+    #         parser.parse(t["endDate"]).date() == today
+    #     )
+    # ]
 
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     log_key = f"logs/tracking_{today_str}.json"
@@ -396,18 +396,18 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
     else:
         mealtime_type = mealtime
 
-    # survey_map = {
-    #     "breakfast": "meal_tracking_breakfast",
-    #     "lunch": "meal_tracking_lunch",
-    #     "dinner": "meal_tracking_dinner"
-    # }
-
-    ## IF ENGLISH
     survey_map = {
-        "breakfast": "log_breakfast_en",
-        "lunch": "log_lunch_en",
-        "dinner": "log_dinner_en"
+        "breakfast": "meal_tracking_breakfast",
+        "lunch": "meal_tracking_lunch",
+        "dinner": "meal_tracking_dinner"
     }
+
+    # ## IF ENGLISH
+    # survey_map = {
+    #     "breakfast": "log_breakfast_en",
+    #     "lunch": "log_lunch_en",
+    #     "dinner": "log_dinner_en"
+    # }
 
     if mealtime_type not in survey_map:
         print(f"[WARN] Unknown or irrelevant mealtime '{mealtime}' for participant {pid} — skipping check")
