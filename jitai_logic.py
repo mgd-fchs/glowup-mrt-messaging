@@ -69,6 +69,10 @@ def lambda_handler(event, context):
         mealtimes = participant_context_data[pid].get("active_mealtimes", [])
         print(f"{pid} assigned to group: {group} | Active mealtime(s): {', '.join(mealtimes) if mealtimes else 'None'}")
 
+    print("----DEBUG-----")
+    print(f"Project ID: {project_id}")
+    print(f"Bucket: {BUCKET}")
+
     check_and_increment_tracking(base_url, project_id, access_token, BUCKET)
     schedule_notifications(assignments, participant_context_data)
     schedule_sync_reminders(participant_context_data)
