@@ -4,7 +4,7 @@ from notifications import *
 from api_utils import *
 from jitai_utils import *
 
-BUCKET = "mrt-messages-logs"
+BUCKET = "glowup-mrt"
 
 def lambda_handler(event=None, context=None):
     print("Running notifier...")

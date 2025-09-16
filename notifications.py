@@ -9,7 +9,7 @@ from s3_utils import *
 from zoneinfo import ZoneInfo
 from pytz import timezone as pytz_timezone
 
-BUCKET = "mrt-messages-logs"
+BUCKET = "glowup-mrt"
 SENT_LOG_KEY = "sent_log.json"
 
 NOTIFICATION_BANK = {
