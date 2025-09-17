@@ -311,7 +311,7 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
         t for t in response.json().get("surveyTasks", [])
         if (
             t.get("status", "").lower() == "complete" and
-            t.get("surveyName") in {"meal_tracking_breakfast", "meal_tracking_lunch", "meal_tracking_dinner"} and
+            t.get("surveyName") in {"log_breakfast_de", "log_lunch_de", "log_dinner_de"} and
             t.get("endDate") and
             parser.parse(t["endDate"]).date() == today
         )
@@ -397,9 +397,9 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
         mealtime_type = mealtime
 
     survey_map = {
-        "breakfast": "meal_tracking_breakfast",
-        "lunch": "meal_tracking_lunch",
-        "dinner": "meal_tracking_dinner"
+        "breakfast": "log_breakfast_de",
+        "lunch": "log_lunch_de",
+        "dinner": "log_dinner_de"
     }
 
     # ## IF ENGLISH

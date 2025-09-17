@@ -53,6 +53,7 @@ def lambda_handler(event=None, context=None):
             continue
 
         has_incomplete_tasks = has_incomplete_task_today(pid, mealtime, project_id, access_token)
+        print(f"DEBUG: HAS INCOMPLETE TASKS: {has_incomplete_tasks}")
         print(f"Key: {key}")
         print(f"Has incomplete: {has_incomplete_tasks}")
 
