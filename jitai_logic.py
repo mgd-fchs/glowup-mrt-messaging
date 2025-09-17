@@ -10,9 +10,9 @@ import fitbit as Fitbit
 def lambda_handler(event, context):
     print("Running MRT loop...")
     segment_ids = {
-        "iOS": "fd09bd40-a26b-42b3-86af-4a59cbba489a",
-        "Android": "2c3457ae-3c5b-4616-8480-e1e4ac750cdd",
-        "Fitbit": "e1fc5eaf-e279-4e83-8a05-69831c352bd1"
+        "iOS": "d06bb52f-fecb-4625-94ee-26fddbbec8d6",
+        "Android": "126ab0db-2207-47ac-afbc-f8925270c4e4",
+        "Fitbit": "5e15de8b-11cc-43d0-89fd-f80e2a51b277"
     }
     access_token = get_service_access_token()
     active_participant_ids_by_platform = {}
@@ -21,6 +21,7 @@ def lambda_handler(event, context):
 
     for platform, seg_id in segment_ids.items():
         segment_participants = get_participants_by_segment(project_id, access_token, seg_id)
+        print(segment_participants)
         active_participants = get_active_meal_window_participants(segment_participants)
         for p in active_participants:
             all_active_participants[p["participantIdentifier"]] = p
