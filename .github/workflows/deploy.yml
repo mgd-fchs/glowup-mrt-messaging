@@ -32,5 +32,9 @@ jobs:
             --build-arg RKS_PRIVATE_KEY="${{ secrets.RKS_PRIVATE_KEY }}" \
             --build-arg RKS_PROJECT_ID=${{ secrets.RKS_PROJECT_ID }} \
             --build-arg RKS_SERVICE_ACCOUNT=${{ secrets.RKS_SERVICE_ACCOUNT }} \
+            --build-arg EMAIL_RECIPIENT_1=${{ secrets.EMAIL_RECIPIENT_1 }} \
+            --build-arg EMAIL_RECIPIENT_2=${{ secrets.EMAIL_RECIPIENT_2 }} \
+            --build-arg BASE_URL_UH=${{ secrets.BASE_URL_UH }} \
+            --build-arg UH_API_TOKEN=${{ secrets.UH_API_TOKEN }} \
             -t 072705593119.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:prod .
           docker push 072705593119.dkr.ecr.eu-north-1.amazonaws.com/mrt-lambda:prod

@@ -17,7 +17,8 @@ service_account_name = os.getenv('RKS_SERVICE_ACCOUNT')
 project_id = os.getenv('RKS_PROJECT_ID')
 base_url = os.getenv('BASE_URL')
 token_url = f'{base_url}/identityserver/connect/token'
-
+base_url_uh = os.getenv('BASE_URL_UH')
+api_key = os.getenv('UH_API_TOKEN')
 
 def get_service_access_token() -> str:
     assertion = {
@@ -119,3 +120,96 @@ def get_surveys(project_id, access_token, participant_id):
         raise RuntimeError(f"Failed to fetch surveys for {participant_id}: {response.status_code} - {response.text}")
 
     return response.json().get("surveyEvents", [])
+
+
+def fetch_metrics(base_url_uh, api_token, email, day_delta):
+    # day_delta = 1 for yesterday, =0 for today, etc.
+    yesterday = datetime.date.today() - datetime.timedelta(days=day_delta)
+    date_str = yesterday.strftime("%d/%m/%Y")   # UH expects DD/MM/YYYY
+
+    params = {"email": email, "date": date_str}
+    headers = {"Authorization": api_token}
+
+    resp = requests.get(base_url_uh, params=params, headers=headers, timeout=20)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def extract_metric_data(api_response):
+    if not isinstance(api_response, dict):
+        return []
+    data = api_response.get("data")
+    if not isinstance(data, dict):
+        return []
+    metric_data = data.get("metric_data")
+    if not isinstance(metric_data, list):
+        return []
+    return metric_data
+
+
+def get_last_timestamp_status(base_url_uh, api_token, participant_emails):
+    now = datetime.datetime.now()
+    six_hours_ago_ts = int((now - datetime.timedelta(hours=6)).timestamp())
+
+    today = datetime.date.today()
+    yesterday = today - datetime.timedelta(days=1)
+
+    # UH requires DD/MM/YYYY
+    dates = [
+        0, 1
+    ]
+
+    results = {}
+
+    for email in participant_emails:
+        timestamps = []
+
+        for d in dates:
+            try:
+                resp = fetch_metrics(base_url_uh, api_token, email, d)
+                metrics = extract_metric_data(resp)
+
+                for m in metrics:
+                    if not isinstance(m, dict):
+                        continue
+
+                    obj = m.get("object", {})
+                    if not isinstance(obj, dict):
+                        continue
+
+                    # Only use detailed values with real datapoints
+                    vals = obj.get("values")
+                    if isinstance(vals, list):
+                        for item in vals:
+                            if not isinstance(item, dict):
+                                continue
+
+                            val = item.get("value")
+                            ts = item.get("timestamp")
+
+                            # Skip empty or None-value datapoints
+                            if val in (None, "", [], {}):
+                                continue
+
+                            if isinstance(ts, (int, float)):
+                                timestamps.append(ts)
+
+            except Exception:
+                pass
+
+        if timestamps:
+            last_ts = max(timestamps)
+            hours_ago = (now.timestamp() - last_ts) / 3600.0
+            stale = last_ts < six_hours_ago_ts
+        else:
+            last_ts = None
+            hours_ago = None
+            stale = True  # no data → stale
+
+        results[email] = {
+            "last_ts": last_ts,
+            "hours_ago": hours_ago,
+            "stale": stale,
+        }
+
+    return results

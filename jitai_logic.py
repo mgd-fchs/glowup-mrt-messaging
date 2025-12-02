@@ -2,10 +2,6 @@ import time
 from jitai_utils import *
 from api_utils import *
 from notifications import *
-import apple_health as AppleHealth
-import health_connect as HealthConnect
-import google_fit as GoogleFit
-import fitbit as Fitbit
 
 def lambda_handler(event, context):
     print("Running MRT loop...")
@@ -14,6 +10,7 @@ def lambda_handler(event, context):
         "Android": "126ab0db-2207-47ac-afbc-f8925270c4e4",
         "Fitbit": "5e15de8b-11cc-43d0-89fd-f80e2a51b277"
     }
+    
     access_token = get_service_access_token()
     active_participant_ids_by_platform = {}
     participant_context_data = {}
@@ -28,42 +25,28 @@ def lambda_handler(event, context):
         active_ids = [p["participantIdentifier"] for p in active_participants]
         active_participant_ids_by_platform[platform] = active_ids
         print(f"{platform} - Active participant IDs: {active_ids}")
-
+     
     for platform, participant_ids in active_participant_ids_by_platform.items():
         for pid in participant_ids:
-            daily_steps = {}
-            sleep_data = []
-            
-            if platform == "iOS":
-                steps_data = AppleHealth.get_steps(access_token, project_id, pid, base_url)
-                sleep_data = AppleHealth.get_sleep(access_token, project_id, pid, base_url)
-                daily_steps = AppleHealth.aggregate_steps_by_source(steps_data)
-            # elif platform == "Android":
-            #     steps_data = GoogleFit.get_steps(access_token, project_id, pid, base_url)
-            #     sleep_data = GoogleFit.get_sleep(access_token, project_id, pid, base_url)
-            #     daily_steps = GoogleFit.aggregate_steps_by_source(steps_data)
-            elif platform == "Fitbit":
-                steps_data = Fitbit.get_steps(access_token, project_id, pid, base_url)
-                sleep_data = Fitbit.get_sleep(access_token, project_id, pid, base_url)
-                daily_steps = Fitbit.aggregate_steps_by_source(steps_data)
-
-            total_steps = max(daily_steps.values()) if daily_steps else None
-            total_sleep_ms = sum([s.get("duration", 0) for s in sleep_data])
-            total_sleep_hours = total_sleep_ms / (1000 * 60 * 60)
-
             p_obj = all_active_participants.get(pid)
             participant_context_data[pid] = {
                 "platform": platform,
-                "total_steps": total_steps,
-                "total_sleep_hours": total_sleep_hours,
                 "active_mealtimes": p_obj.get("active_mealtimes", []) if p_obj else [],
                 "custom_fields": p_obj.get("customFields", {}) if p_obj else {},
                 "demographics": p_obj.get("demographics", {}) if p_obj else {}
             }
+
+            # get email 
+            participant_email = participant_context_data[pid]['custom_fields'].get("Ultrahuman_email")
+            
+            # check last timestamp
+            timestamp_status = get_last_timestamp_status(base_url_uh, api_key, participant_email)
+
+            is_inactive = timestamp_status[participant_email]['stale']
             participant_context_data[pid]["needs_sync_reminder"] = (
-                total_steps is None and total_sleep_hours == 0
+                is_inactive
             )
-            print(f"{platform} - {pid} - Steps: {total_steps}, Sleep (h): {total_sleep_hours:.2f}")
+            print(f"Participant {pid} last updated UH at timestamp {timestamp_status[participant_email]['last_ts']}, {timestamp_status[participant_email]['hours_ago']} hours ago")
 
     assignments = randomize(participant_context_data)
     for pid, group in assignments.items():

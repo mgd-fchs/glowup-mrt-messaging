@@ -1,3 +1,4 @@
+import os
 import requests
 import random
 from datetime import datetime, timedelta, timezone
@@ -280,7 +281,7 @@ def randomize(participant_context_data):
     """
     assignments = {}
 
-    for pid, context in participant_context_data.items():
+    for pid in participant_context_data.items():
         group = random.choice(["context", "control", "single"])
         assignments[pid] = group
 
@@ -466,3 +467,30 @@ def has_incomplete_task_today(pid, mealtime, project_id, access_token):
         print(f"[DEBUG] {pid} already completed {survey_name} today.")
 
     return False  # default: do not send
+
+
+def send_email(participant_id):
+    ses = boto3.client('ses', region_name='eu-central-1')
+
+    recipient = os.getenv('EMAIL_RECIPIENT_1')
+    subject = "⚠️ No sensor data received in last 24h"
+
+    body = f"""
+    Hello,
+
+    No new Ultrahuman sensor data has been received for participant {participant_id} in the past 24 hours.
+    Please check the participant’s device or connectivity status.
+
+    — Automated Monitoring via AWS
+    """
+
+    ses.send_email(
+        Source="healthlab.css@gmail.com",  # must be a verified sender
+        Destination={"ToAddresses": [recipient]},
+        Message={
+            "Subject": {"Data": subject},
+            "Body": {"Text": {"Data": body}}
+        }
+    )
+
+    print(f"[INFO] Alert email sent for participant {participant_id}")
