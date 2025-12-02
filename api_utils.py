@@ -1,6 +1,6 @@
 # rks_api_utils.py
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 import os
 from typing import Optional, Dict
@@ -124,7 +124,7 @@ def get_surveys(project_id, access_token, participant_id):
 
 def fetch_metrics(base_url_uh, api_token, email, day_delta):
     # day_delta = 1 for yesterday, =0 for today, etc.
-    yesterday = datetime.date.today() - datetime.timedelta(days=day_delta)
+    yesterday = datetime.date.today() - timedelta(days=day_delta)
     date_str = yesterday.strftime("%d/%m/%Y")   # UH expects DD/MM/YYYY
 
     params = {"email": email, "date": date_str}
@@ -149,10 +149,10 @@ def extract_metric_data(api_response):
 
 def get_last_timestamp_status(base_url_uh, api_token, participant_emails):
     now = datetime.now()
-    six_hours_ago_ts = int((now - datetime.timedelta(hours=6)).timestamp())
+    six_hours_ago_ts = int((now - timedelta(hours=6)).timestamp())
 
     today = datetime.date.today()
-    yesterday = today - datetime.timedelta(days=1)
+    yesterday = today - timedelta(days=1)
 
     # UH requires DD/MM/YYYY
     dates = [
