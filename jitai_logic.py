@@ -40,6 +40,8 @@ def lambda_handler(event, context):
             participant_email = participant_context_data[pid]['custom_fields'].get("Ultrahuman_email")
             print(f"Participant {pid} has email: {participant_email}")
             
+            if not participant_email:
+                continue
             # check last timestamp
             timestamp_status = get_last_timestamp_status(base_url_uh, api_key, participant_email)
             
