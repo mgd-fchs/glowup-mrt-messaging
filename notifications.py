@@ -281,7 +281,7 @@ def randomize(participant_context_data):
     """
     assignments = {}
 
-    for pid in participant_context_data:
+    for pid in participant_context_data.keys():
         group = random.choice(["context", "control", "single"])
         assignments[pid] = group
 
