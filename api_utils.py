@@ -147,7 +147,7 @@ def extract_metric_data(api_response):
     return metric_data
 
 
-def get_last_timestamp_status(base_url_uh, api_token, participant_emails):
+def get_last_timestamp_status(base_url_uh, api_token, participant_email):
     now = datetime.now()
     six_hours_ago_ts = int((now - timedelta(hours=6)).timestamp())
 
@@ -161,55 +161,55 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_emails):
 
     results = {}
 
-    for email in participant_emails:
-        timestamps = []
 
-        for d in dates:
-            try:
-                resp = fetch_metrics(base_url_uh, api_token, email, d)
-                metrics = extract_metric_data(resp)
+    timestamps = []
 
-                for m in metrics:
-                    if not isinstance(m, dict):
-                        continue
+    for d in dates:
+        try:
+            resp = fetch_metrics(base_url_uh, api_token, participant_email, d)
+            metrics = extract_metric_data(resp)
 
-                    obj = m.get("object", {})
-                    if not isinstance(obj, dict):
-                        continue
+            for m in metrics:
+                if not isinstance(m, dict):
+                    continue
 
-                    # Only use detailed values with real datapoints
-                    vals = obj.get("values")
-                    if isinstance(vals, list):
-                        for item in vals:
-                            if not isinstance(item, dict):
-                                continue
+                obj = m.get("object", {})
+                if not isinstance(obj, dict):
+                    continue
 
-                            val = item.get("value")
-                            ts = item.get("timestamp")
+                # Only use detailed values with real datapoints
+                vals = obj.get("values")
+                if isinstance(vals, list):
+                    for item in vals:
+                        if not isinstance(item, dict):
+                            continue
 
-                            # Skip empty or None-value datapoints
-                            if val in (None, "", [], {}):
-                                continue
+                        val = item.get("value")
+                        ts = item.get("timestamp")
 
-                            if isinstance(ts, (int, float)):
-                                timestamps.append(ts)
+                        # Skip empty or None-value datapoints
+                        if val in (None, "", [], {}):
+                            continue
 
-            except Exception:
-                pass
+                        if isinstance(ts, (int, float)):
+                            timestamps.append(ts)
 
-        if timestamps:
-            last_ts = max(timestamps)
-            hours_ago = (now.timestamp() - last_ts) / 3600.0
-            stale = last_ts < six_hours_ago_ts
-        else:
-            last_ts = None
-            hours_ago = None
-            stale = True  # no data → stale
+        except Exception:
+            pass
 
-        results[email] = {
-            "last_ts": last_ts,
-            "hours_ago": hours_ago,
-            "stale": stale,
-        }
+    if timestamps:
+        last_ts = max(timestamps)
+        hours_ago = (now.timestamp() - last_ts) / 3600.0
+        stale = last_ts < six_hours_ago_ts
+    else:
+        last_ts = None
+        hours_ago = None
+        stale = True  # no data → stale
+
+    results[participant_email] = {
+        "last_ts": last_ts,
+        "hours_ago": hours_ago,
+        "stale": stale,
+    }
 
     return results
