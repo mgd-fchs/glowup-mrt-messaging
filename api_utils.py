@@ -1,6 +1,6 @@
 # rks_api_utils.py
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from uuid import uuid4
 import os
 from typing import Optional, Dict
@@ -148,7 +148,7 @@ def extract_metric_data(api_response):
 
 
 def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_after=6):
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.now(timezone.utc)
     six_hours_ago_ts = int((now - timedelta(hours=stale_after)).timestamp())
 
     # Query today (0), and last 5 days (1–5)
@@ -166,42 +166,33 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
                 if not isinstance(obj, dict):
                     continue
 
-                # Only use detailed values with real datapoints
                 vals = obj.get("values")
-                if isinstance(vals, list):
-                    for item in vals:
-                        if not isinstance(item, dict):
-                            continue
+                if not isinstance(vals, list):
+                    continue
 
-                        val = item.get("value")
-                        ts = item.get("timestamp")
-
-                        # Skip empty or None-value datapoints
-                        ts = item.get("timestamp")
-                        if isinstance(ts, (int, float)):
-                            timestamps.append(ts)
+                for item in vals:
+                    ts = item.get("timestamp")
+                    if isinstance(ts, (int, float)):
+                        timestamps.append(ts)
 
         except Exception:
-            # Silent fail: just no timestamps for this date
             pass
 
-        # Decide status
-        if timestamps:
-            last_ts = max(timestamps)
-            dt = datetime.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
-            hours_ago = (now.timestamp() - last_ts) / 3600.0
-            stale = last_ts < six_hours_ago_ts
-        else:
-            # No data at all for both days
-            last_ts = -1
-            dt=-1
-            hours_ago = -1
-            stale = True
+    if timestamps:
+        last_ts = max(timestamps)
+        dt = datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
+        hours_ago = (now.timestamp() - last_ts) / 3600.0
+        stale = last_ts < six_hours_ago_ts
+    else:
+        last_ts = -1
+        dt = -1
+        hours_ago = -1
+        stale = True
 
-        results[participant_email] = {
-            "last_ts_utc": dt,
-            "hours_ago": int(hours_ago),
-            "stale": stale,
-        }
+    results[participant_email] = {
+        "last_ts_utc": dt,
+        "hours_ago": int(hours_ago),
+        "stale": stale,
+    }
 
     return results
