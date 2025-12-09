@@ -25,7 +25,7 @@ def send_inactive_email(participant_email, last_ts, hours_ago):
     ses.send_email(
         Source=sender,
         Destination={
-            "ToAddresses": [sender]
+            "ToAddresses": [recipient_1, recipient_2]
         },
         Message={
             "Subject": {"Data": subject},

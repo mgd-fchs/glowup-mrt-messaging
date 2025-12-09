@@ -157,28 +157,26 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
     timestamps = []
 
     for d in dates:
-        # try:
-        resp = fetch_metrics(base_url_uh, api_token, participant_email, d)
-        print(f"resp: {resp}")
-        metrics = extract_metric_data(resp)
-        print(f"metrics: {metrics}")
+        try:
+            resp = fetch_metrics(base_url_uh, api_token, participant_email, d)
+            metrics = extract_metric_data(resp)
 
-        for m in metrics:
-            obj = m.get("object", {})
-            if not isinstance(obj, dict):
-                continue
+            for m in metrics:
+                obj = m.get("object", {})
+                if not isinstance(obj, dict):
+                    continue
 
-            vals = obj.get("values")
-            if not isinstance(vals, list):
-                continue
+                vals = obj.get("values")
+                if not isinstance(vals, list):
+                    continue
 
-            for item in vals:
-                ts = item.get("timestamp")
-                if isinstance(ts, (int, float)):
-                    timestamps.append(ts)
+                for item in vals:
+                    ts = item.get("timestamp")
+                    if isinstance(ts, (int, float)):
+                        timestamps.append(ts)
 
-        # except Exception:
-        #     pass
+        except Exception:
+            pass
 
     if timestamps:
         last_ts = max(timestamps)
