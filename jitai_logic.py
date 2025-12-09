@@ -36,24 +36,24 @@ def lambda_handler(event, context):
                 "demographics": p_obj.get("demographics", {}) if p_obj else {}
             }
 
-            # get email 
-            participant_email = participant_context_data[pid]['custom_fields'].get("Ultrahuman_email")
-            print(f"Participant {pid} has email: {participant_email}")
+            # # get email 
+            # participant_email = participant_context_data[pid]['custom_fields'].get("Ultrahuman_email")
+            # print(f"Participant {pid} has email: {participant_email}")
             
-            if not participant_email or participant_email=='':
-                print('continuing to next participant')
-                continue
+            # if not participant_email or participant_email=='':
+            #     print('continuing to next participant')
+            #     continue
 
-            # check last timestamp
-            timestamp_status = get_last_timestamp_status(base_url_uh, api_key, participant_email)
+            # # check last timestamp
+            # timestamp_status = get_last_timestamp_status(base_url_uh, api_key, participant_email)
             
-            print(f"Participant {pid} has timestamp status: {timestamp_status}")
-            is_inactive = timestamp_status[participant_email]['stale']
+            # print(f"Participant {pid} has timestamp status: {timestamp_status}")
+            # is_inactive = timestamp_status[participant_email]['stale']
             
-            participant_context_data[pid]["needs_sync_reminder"] = (
-                is_inactive
-            )
-            print(f"Participant {pid} last updated UH at timestamp {timestamp_status[participant_email]['last_ts']}, {timestamp_status[participant_email]['hours_ago']} hours ago")
+            # participant_context_data[pid]["needs_sync_reminder"] = (
+            #     is_inactive
+            # )
+            # print(f"Participant {pid} last updated UH at timestamp {timestamp_status[participant_email]['last_ts']}, {timestamp_status[participant_email]['hours_ago']} hours ago")
 
     assignments = randomize(participant_context_data)
     for pid, group in assignments.items():

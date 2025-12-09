@@ -147,9 +147,9 @@ def extract_metric_data(api_response):
     return metric_data
 
 
-def get_last_timestamp_status(base_url_uh, api_token, participant_email):
+def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_after=6):
     now = datetime.now()
-    six_hours_ago_ts = int((now - timedelta(hours=6)).timestamp())
+    six_hours_ago_ts = int((now - timedelta(hours=stale_after)).timestamp())
 
     today = date.today()
     yesterday = today - timedelta(days=1)
