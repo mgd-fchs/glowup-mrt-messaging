@@ -159,7 +159,9 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
     for d in dates:
         try:
             resp = fetch_metrics(base_url_uh, api_token, participant_email, d)
+            print(f"resp: {resp}")
             metrics = extract_metric_data(resp)
+            print(f"metrics: {metrics}")
 
             for m in metrics:
                 obj = m.get("object", {})
