@@ -4,13 +4,13 @@ from api_utils import *
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table("UH_emails")
-ses = boto3.client("ses")
+ses = boto3.client("ses", region_name="eu-north-1")
 
 
 def send_inactive_email(participant_email, last_ts, hours_ago):
-    recipient_1 = os.environ["EMAIL_RECIPIENT_1"]
-    recipient_2 = os.environ["EMAIL_RECIPIENT_2"]
-    sender = os.environ["EMAIL_SENDER"]  # must be verified in SES
+    recipient_1 = os.environ["EMAIL_RECIPIENT_1"].strip()
+    recipient_2 = os.environ["EMAIL_RECIPIENT_2"].strip()
+    sender = os.environ["EMAIL_SENDER"].strip()
 
     print(f"Sending to {recipient_1}, {recipient_2}, {sender}")
 
@@ -25,7 +25,7 @@ def send_inactive_email(participant_email, last_ts, hours_ago):
     ses.send_email(
         Source=sender,
         Destination={
-            "ToAddresses": [recipient_1]
+            "ToAddresses": [sender]
         },
         Message={
             "Subject": {"Data": subject},
@@ -66,7 +66,7 @@ def lambda_handler(event, context):
 
     # check UH API for inactivity of each active participant
     for mail in emails:
-        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=5)
+        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=48)
 
         status = timestamp_status.get(mail)
         if not status:
