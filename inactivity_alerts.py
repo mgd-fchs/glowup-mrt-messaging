@@ -47,6 +47,14 @@ def lambda_handler(event, context):
         for item in items:
             # Only collect if attribute exists
             email = item.get("UH_email")
+            
+            # Normalize set or list
+            if isinstance(email, (set, list)):
+                email = list(email)[0]
+
+            if not isinstance(email, str):
+                raise ValueError(f"UH_email is not a string: {email} (type {type(email)})")
+
             if email:
                 emails.append(email)
 
