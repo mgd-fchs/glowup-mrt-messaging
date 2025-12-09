@@ -12,9 +12,9 @@ def send_inactive_email(participant_email, last_ts, hours_ago):
     recipient_2 = os.environ["EMAIL_RECIPIENT_2"].strip()
     sender = os.environ["EMAIL_SENDER"].strip()
 
-    print(f"Sending to {recipient_1}, {recipient_2}, {sender}")
+    # print(f"Sending to {recipient_1}, {recipient_2}, {sender}")
 
-    subject = f"UH participant inactive: {participant_email}"
+    subject = f"UH participant inactive"
     body_text = (
         f"The participant with email {participant_email} has not synchronized their Ultrahuman data.\n"
         f"Last timestamp: {last_ts}\n"
@@ -78,7 +78,7 @@ def lambda_handler(event, context):
         is_inactive = status.get("stale", False)
 
         print(
-            f"Participant {mail} last updated UH at {status['last_ts']}, "
+            f"Participant {mail} last updated UH at {status['last_ts_utc']}, "
             f"{status['hours_ago']} hours ago"
         )
 
@@ -86,7 +86,7 @@ def lambda_handler(event, context):
             print(f"Sending SES email for inactive participant {mail}")
             send_inactive_email(
                 mail,
-                status["last_ts"],
+                status["last_ts_utc"],
                 status["hours_ago"]
             )
 

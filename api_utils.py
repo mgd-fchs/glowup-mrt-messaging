@@ -151,17 +151,9 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
     now = datetime.now()
     six_hours_ago_ts = int((now - timedelta(hours=stale_after)).timestamp())
 
-    today = date.today()
-    yesterday = today - timedelta(days=1)
-
-    # UH requires DD/MM/YYYY
-    dates = [
-        0, 1
-    ]
-
+    # Query today (0), and last 5 days (1–5)
+    dates = list(range(0, 6))
     results = {}
-
-
     timestamps = []
 
     for d in dates:
@@ -188,27 +180,31 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
                         ts = item.get("timestamp")
 
                         # Skip empty or None-value datapoints
-                        if val in (None, "", [], {}):
-                            continue
-
+                        ts = item.get("timestamp")
                         if isinstance(ts, (int, float)):
                             timestamps.append(ts)
 
         except Exception:
             pass
 
+    # decision logic
     if timestamps:
         last_ts = max(timestamps)
         hours_ago = (now.timestamp() - last_ts) / 3600.0
         stale = last_ts < six_hours_ago_ts
+
+        # human-readable UTC time
+        last_ts_utc = datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
     else:
-        last_ts = None
-        hours_ago = None
-        stale = True  # no data → stale
+        # no data at all
+        last_ts = -1
+        last_ts_utc = -1
+        hours_ago = -1
+        stale = True
 
     results[participant_email] = {
-        "last_ts": last_ts,
-        "hours_ago": hours_ago,
+        "last_ts_utc": last_ts_utc,
+        "hours_ago": int(hours_ago),
         "stale": stale,
     }
 
