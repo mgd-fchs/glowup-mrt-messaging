@@ -12,18 +12,20 @@ def send_inactive_email(participant_email, last_ts, hours_ago):
     recipient_2 = os.environ["EMAIL_RECIPIENT_2"]
     sender = os.environ["EMAIL_SENDER"]  # must be verified in SES
 
+    print(f"Sending to {recipient_1}, {recipient_2}, {sender}")
+
     subject = f"UH participant inactive: {participant_email}"
     body_text = (
-        f"The participant with email {participant_email} has not synced.\n"
+        f"The participant with email {participant_email} has not synchronized their Ultrahuman data.\n"
         f"Last timestamp: {last_ts}\n"
         f"Hours since last update: {hours_ago}\n"
-        f"Please follow up."
+        f"Please follow up with the participant."
     )
 
     ses.send_email(
         Source=sender,
         Destination={
-            "ToAddresses": [recipient_1, recipient_2]
+            "ToAddresses": [recipient_1]
         },
         Message={
             "Subject": {"Data": subject},
@@ -47,7 +49,7 @@ def lambda_handler(event, context):
         for item in items:
             # Only collect if attribute exists
             email = item.get("UH_email")
-            
+
             # Normalize set or list
             if isinstance(email, (set, list)):
                 email = list(email)[0]
@@ -64,7 +66,7 @@ def lambda_handler(event, context):
 
     # check UH API for inactivity of each active participant
     for mail in emails:
-        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=1)
+        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=5)
 
         status = timestamp_status.get(mail)
         if not status:
