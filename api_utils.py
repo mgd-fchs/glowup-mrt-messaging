@@ -148,7 +148,7 @@ def extract_metric_data(api_response):
 
 
 def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_after=6):
-    now = datetime.now()
+    now = datetime.datetime.now(datetime.timezone.utc)
     six_hours_ago_ts = int((now - timedelta(hours=stale_after)).timestamp())
 
     # Query today (0), and last 5 days (1–5)
@@ -162,9 +162,6 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
             metrics = extract_metric_data(resp)
 
             for m in metrics:
-                if not isinstance(m, dict):
-                    continue
-
                 obj = m.get("object", {})
                 if not isinstance(obj, dict):
                     continue
@@ -185,27 +182,26 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
                             timestamps.append(ts)
 
         except Exception:
+            # Silent fail: just no timestamps for this date
             pass
 
-    # decision logic
-    if timestamps:
-        last_ts = max(timestamps)
-        hours_ago = (now.timestamp() - last_ts) / 3600.0
-        stale = last_ts < six_hours_ago_ts
+        # Decide status
+        if timestamps:
+            last_ts = max(timestamps)
+            dt = datetime.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
+            hours_ago = (now.timestamp() - last_ts) / 3600.0
+            stale = last_ts < six_hours_ago_ts
+        else:
+            # No data at all for both days
+            last_ts = -1
+            dt=-1
+            hours_ago = -1
+            stale = True
 
-        # human-readable UTC time
-        last_ts_utc = datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        # no data at all
-        last_ts = -1
-        last_ts_utc = -1
-        hours_ago = -1
-        stale = True
-
-    results[participant_email] = {
-        "last_ts_utc": last_ts_utc,
-        "hours_ago": int(hours_ago),
-        "stale": stale,
-    }
+        results[participant_email] = {
+            "last_ts_utc": dt,
+            "hours_ago": int(hours_ago),
+            "stale": stale,
+        }
 
     return results
