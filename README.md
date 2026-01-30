@@ -8,8 +8,8 @@ The code reuses and adapts elements of MyDataHelps' Python API Quickstart (`http
 
 ## Structure
 
-
-## Quick Start
-
-1. Populate environment variables in `src/.env`
-2. `Run jitai_logic.py`
+Lambda functions:
+- `jitai_logic.py` checks the adherence of the study participants to food logging thus far and schedules messages (runs every 15 min).
+- `notifier_logic.py` dispatches the messages scheduled by jitai_logic (runs every few minutes).
+- `inactivity_alerts.py` sends emails to the study team if a participant is missing Ultrahuman data (runs every 3h).
+- `weekly_report_and_backup.py` sends an email to the study team regarding all participants' current adherence to food logging and backs UH data up to AWS S3 (runs every Wednesday at 06:00).
