@@ -267,36 +267,47 @@ def export_last_7_days_per_participant(participants, end_day_delta: int = 1):
 
 
 def upload_to_s3(filepaths):
-    """
-    Upload each local CSV to:
-      s3://<bucket>/ultrahuman_database/<ID>/<WEEK>__id_<ID>.csv
+    print("[DEBUG] upload_to_s3 called")
+    print("[DEBUG] S3_BUCKET (global):", repr(S3_BUCKET))
+    print("[DEBUG] Number of files passed in:", len(filepaths))
 
-    Assumes local files are named like: "{week}__id_{id}.csv"
-    """
     if not S3_BUCKET:
+        print("[ERROR] S3_BUCKET is empty or falsy → returning without upload")
         return []
 
     s3 = boto3.client("s3")
     uploaded = []
 
     for path in filepaths:
+        print("[DEBUG] Processing local file:", path)
+
+        if not os.path.exists(path):
+            print("[ERROR] Local file does not exist:", path)
+            continue
+
         filename = os.path.basename(path)
 
-        # Parse ID from filename: "{week}__id_{ID}.csv"
         participant_id = "UNKNOWN"
         parts = filename.split("__")
         if len(parts) >= 2 and parts[1].startswith("id_"):
-            participant_id = parts[1][3:]  # "1005.csv" here
+            participant_id = parts[1][3:]
             if participant_id.lower().endswith(".csv"):
-                participant_id = participant_id[:-4]  # remove ".csv"
+                participant_id = participant_id[:-4]
 
-        # Put into S3 "folder" = ultrahuman_database/<ID>/
         key = f"ultrahuman_database/{participant_id}/{filename}"
+        print("[DEBUG] Upload target:", f"s3://{S3_BUCKET}/{key}")
 
-        s3.upload_file(path, S3_BUCKET, key)
-        uploaded.append({"bucket": S3_BUCKET, "key": key})
+        try:
+            s3.upload_file(path, S3_BUCKET, key)
+            print("[INFO] Upload succeeded:", key)
+            uploaded.append({"bucket": S3_BUCKET, "key": key})
+        except Exception as e:
+            print("[ERROR] Upload failed for", key, "→", str(e))
+            raise
 
+    print("[DEBUG] upload_to_s3 finished, uploaded:", len(uploaded))
     return uploaded
+
 
 
 def get_snack_completion(base_url, project_id, access_token, first_meal):
@@ -718,6 +729,7 @@ def lambda_handler(event, context):
     # Upload UH data to S3
     participants = get_participants_from_ddb()
     out = export_last_7_days_per_participant(participants, end_day_delta=1)
+    print("[DEBUG] About to upload files:", out["files"])
 
     uploaded = upload_to_s3(out["files"])
     out["uploaded"] = uploaded
