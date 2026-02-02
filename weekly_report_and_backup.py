@@ -20,7 +20,7 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/tmp/uh_weekly_output")  # local runs
 # In Lambda you can set OUTPUT_DIR="/tmp/uh_weekly_output"
 
 # Optionally upload to S3 (leave unset to disable)
-S3_BUCKET = os.environ.get("S3_BUCKET", "glowup-mdh")  # e.g. "my-bucket"
+S3_BUCKET = os.environ.get("S3_BUCKET", "glowup-mdh")
 S3_PREFIX = os.environ.get("S3_PREFIX", "uh_weekly_exports/")  # folder prefix
 
 RKS_PROJECT_ID = os.environ.get("RKS_PROJECT_ID") 
