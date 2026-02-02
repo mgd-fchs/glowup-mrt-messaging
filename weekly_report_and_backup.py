@@ -14,13 +14,13 @@ BASE_URL_UH = "https://partner.ultrahuman.com/api/v1/metrics"
 API_TOKEN = os.environ["UH_API_TOKEN"].strip()
 
 DDB_TABLE = os.environ.get("DDB_TABLE", "UH_emails")
-DDB_REGION = os.environ.get("AWS_REGION")  # Lambda sets this; locally set it or rely on config
+DDB_REGION = os.environ.get("AWS_REGION", "eu-north-1")  # Lambda sets this; locally set it or rely on config
 
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/tmp/uh_weekly_output")  # local runs
 # In Lambda you can set OUTPUT_DIR="/tmp/uh_weekly_output"
 
 # Optionally upload to S3 (leave unset to disable)
-S3_BUCKET = os.environ.get("S3_BUCKET")  # e.g. "my-bucket"
+S3_BUCKET = os.environ.get("S3_BUCKET", "glowup-mdh")  # e.g. "my-bucket"
 S3_PREFIX = os.environ.get("S3_PREFIX", "uh_weekly_exports/")  # folder prefix
 
 RKS_PROJECT_ID = os.environ.get("RKS_PROJECT_ID") 
