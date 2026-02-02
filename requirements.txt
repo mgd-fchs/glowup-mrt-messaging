@@ -4,3 +4,5 @@ PyJWT>=2.0,<3
 cryptography>=3.4.8
 python-dotenv==1.0.1
 boto3==1.38.26
+pandas==2.2.3
+python-dateutil==2.9.0.post0
