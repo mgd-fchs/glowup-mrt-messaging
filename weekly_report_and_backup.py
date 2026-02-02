@@ -16,7 +16,7 @@ API_TOKEN = os.environ["UH_API_TOKEN"].strip()
 DDB_TABLE = os.environ.get("DDB_TABLE", "UH_emails")
 DDB_REGION = os.environ.get("AWS_REGION")  # Lambda sets this; locally set it or rely on config
 
-OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "./uh_weekly_output")  # local runs
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/tmp/uh_weekly_output")  # local runs
 # In Lambda you can set OUTPUT_DIR="/tmp/uh_weekly_output"
 
 # Optionally upload to S3 (leave unset to disable)
