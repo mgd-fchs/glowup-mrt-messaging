@@ -195,10 +195,7 @@ def export_last_day_per_participant(participants, end_day_delta: int = 1):
     The JSON contains the FULL Ultrahuman API response for that date (no parsing/filtering),
     plus minimal metadata (id, email, date, pulled_at_utc).
     """
-    # OUTPUT_DIR must be a directory, not a file
-    if str(OUTPUT_DIR).endswith(".csv"):
-        raise ValueError(f"OUTPUT_DIR must be a directory, got: {OUTPUT_DIR}")
-
+    
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     try:
@@ -278,8 +275,7 @@ def upload_to_s3(filepaths):
         parts = filename.split("__")
         if len(parts) >= 2 and parts[1].startswith("id_"):
             participant_id = parts[1][3:]
-            if participant_id.lower().endswith(".csv"):
-                participant_id = participant_id[:-4]
+            participant_id = os.path.splitext(participant_id)[0]
 
         key = f"ultrahuman_database/{participant_id}/{filename}"
         print("[DEBUG] Upload target:", f"s3://{S3_BUCKET}/{key}")
@@ -698,7 +694,7 @@ def lambda_handler(event, context):
     p = os.getenv("RKS_PRIVATE_KEY_PATH")
     VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
-    if (not DEBUG) and (datetime.now(VIENNA_TZ).weekday() == 1):  # Mon=0 ... Wed=2
+    if (not DEBUG) and (datetime.now(VIENNA_TZ).weekday() == 2):  # Mon=0 ... Wed=2
         df_adherence = check_tracking(
             BASE_URL,
             RKS_PROJECT_ID,
