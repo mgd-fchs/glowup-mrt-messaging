@@ -2,6 +2,7 @@ import os, csv, json, requests, boto3
 import pandas as pd
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from zoneinfo import ZoneInfo
 from datetime import datetime, timezone, timedelta
 from api_utils import *
 
@@ -185,10 +186,14 @@ def week_label(date_obj: datetime.date) -> str:
     return f"{iso_year}-W{iso_week:02d}"
 
 
-def export_last_7_days_per_participant(participants, end_day_delta: int = 1):
+def export_last_day_per_participant(participants, end_day_delta: int = 1):
     """
-    Creates ONE CSV per participant containing the last 7 days ending at (today - end_day_delta).
-    Writes to: OUTPUT_DIR/<ID>/<WEEK>__id_<ID>.csv
+    (MINIMAL CHANGE) Now creates ONE JSON per participant for ONLY yesterday's calendar date.
+
+    Writes to: OUTPUT_DIR/<ID>/<YYYY-MM-DD>__id_<ID>.json
+
+    The JSON contains the FULL Ultrahuman API response for that date (no parsing/filtering),
+    plus minimal metadata (id, email, date, pulled_at_utc).
     """
     # OUTPUT_DIR must be a directory, not a file
     if str(OUTPUT_DIR).endswith(".csv"):
@@ -196,9 +201,14 @@ def export_last_7_days_per_participant(participants, end_day_delta: int = 1):
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    end_date = datetime.now(timezone.utc).date() - timedelta(days=end_day_delta)
-    start_date = end_date - timedelta(days=6)
-    wl = week_label(end_date)  # e.g. 2026-W05
+    try:
+        tz = ZoneInfo("Europe/Vienna")
+        target_date = datetime.now(tz).date() - timedelta(days=end_day_delta)
+    except Exception:
+        # fallback: previous behavior (UTC-based) if zoneinfo not available
+        target_date = datetime.now(timezone.utc).date() - timedelta(days=end_day_delta)
+
+    ymd = target_date.isoformat()  # YYYY-MM-DD
 
     created_files = []
 
@@ -211,57 +221,34 @@ def export_last_7_days_per_participant(participants, end_day_delta: int = 1):
         participant_dir = os.path.join(OUTPUT_DIR, safe_id)
         os.makedirs(participant_dir, exist_ok=True)
 
-        rows = []
-        errors = []
+        error = None
+        resp = None
 
-        for i in range(7):
-            day = start_date + timedelta(days=i)
-            date_str = day.strftime("%d/%m/%Y")
+        try:
+            resp = fetch_metrics_for_date(email, target_date)
+        except Exception as e:
+            error = str(e)
 
-            try:
-                resp = fetch_metrics_for_date(email, day)
-                raw = extract_metric_data(resp)
-                non_empty = filter_non_empty(raw)
-                rows.extend(metrics_to_rows(pid, email, date_str, non_empty))
-            except Exception as e:
-                errors.append({"date": date_str, "error": str(e)})
-
-        # filename should be week + id
-        filename = f"{wl}__id_{safe_id}.csv"
+        # filename: date + id
+        filename = f"{ymd}__id_{safe_id}.json"
         filepath = os.path.join(participant_dir, filename)
 
-        with open(filepath, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=["id", "email", "date", "metric_type", "timestamp", "value"],
-            )
-            writer.writeheader()
-            for r in rows:
-                writer.writerow(r)
+        out_obj = {
+            "id": pid,
+            "email": email,
+            "date": ymd,
+            "pulled_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "ultrahuman_response": resp,   # FULL JSON payload (includes sleep, etc.)
+            "error": error,               # None if ok
+        }
 
-        # optional error log alongside the CSV
-        if errors:
-            err_path = os.path.join(participant_dir, f"{wl}__id_{safe_id}__errors.json")
-            with open(err_path, "w", encoding="utf-8") as ef:
-                json.dump(
-                    {
-                        "id": pid,
-                        "email": email,
-                        "week": wl,
-                        "start": str(start_date),
-                        "end": str(end_date),
-                        "errors": errors,
-                    },
-                    ef,
-                    indent=2,
-                )
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(out_obj, f, ensure_ascii=False)
 
         created_files.append(filepath)
 
     return {
-        "week": wl,
-        "start_date": str(start_date),
-        "end_date": str(end_date),
+        "date": ymd,
         "files": created_files,
     }
 
@@ -706,32 +693,43 @@ def attach_mdh_emails_and_print(df_adherence, base_url, project_id, access_token
 # Lambda entry point
 # -------------------------
 def lambda_handler(event, context):
+    DEBUG=False
 
     p = os.getenv("RKS_PRIVATE_KEY_PATH")
+    VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
-    df_adherence = check_tracking(
-        BASE_URL,
-        RKS_PROJECT_ID,
-        get_service_access_token(),
-        bucket=None,
-    )
+    if (not DEBUG) and (datetime.now(VIENNA_TZ).weekday() == 1):  # Mon=0 ... Wed=2
+        df_adherence = check_tracking(
+            BASE_URL,
+            RKS_PROJECT_ID,
+            get_service_access_token(),
+            bucket=None,
+        )
 
-    df_adherence_with_email = attach_mdh_emails_and_print(
-        df_adherence,
-        BASE_URL,
-        RKS_PROJECT_ID,
-        get_service_access_token(),
-    )
+        df_adherence_with_email = attach_mdh_emails_and_print(
+            df_adherence,
+            BASE_URL,
+            RKS_PROJECT_ID,
+            get_service_access_token(),
+        )
 
-    # Send out adherence metrics to study team
-    send_adherence_email(df_adherence_with_email)
+        # Send out adherence metrics to study team
+        send_adherence_email(df_adherence_with_email)
+    else:
+        print(f"[DEBUG] Skipping adherence: DEBUG={DEBUG}, weekday={datetime.now(VIENNA_TZ).weekday()}")
     
-    # Upload UH data to S3
+    # Export UH data (yesterday)
     participants = get_participants_from_ddb()
-    out = export_last_7_days_per_participant(participants, end_day_delta=1)
-    print("[DEBUG] About to upload files:", out["files"])
+    out = export_last_day_per_participant(participants, end_day_delta=1)
+    print("[DEBUG] About to process files:", out["files"])
 
-    uploaded = upload_to_s3(out["files"])
+    # MINIMAL CHANGE: Skip S3 when DEBUG
+    if DEBUG:
+        print("[DEBUG] DEBUG=true → skipping S3 upload")
+        uploaded = []
+    else:
+        uploaded = upload_to_s3(out["files"])
+
     out["uploaded"] = uploaded
     out["n_participants"] = len(participants)
 
@@ -744,111 +742,3 @@ if __name__ == "__main__":
     # Assumes AWS profile/region creds are set (for DynamoDB and S3)
     res = lambda_handler({}, None)
     print(json.dumps(res, indent=2))
-
-
-# def backfill_last_n_weeks(participants, n_weeks: int = 10, end_day_delta: int = 1):
-#     """
-#     One-time backfill: for each of the past n_weeks (including the current week of end_date),
-#     fetch 7 days of data per participant, write ONE CSV per participant-week, and upload to:
-
-#       s3://<bucket>/ultrahuman_database/<ID>/<YYYY-Www>__id_<ID>.csv
-
-#     Skips uploading if that participant-week has zero rows (no real data).
-
-#     NOTE: This calls your existing helpers:
-#       - fetch_metrics_for_date(email, day)
-#       - extract_metric_data(resp)
-#       - filter_non_empty(raw)
-#       - metrics_to_rows(pid, email, date_str, non_empty)
-#       - week_label(date_obj)
-#       - upload_to_s3([filepath])
-#     """
-
-#     if str(OUTPUT_DIR).endswith(".csv"):
-#         raise ValueError(f"OUTPUT_DIR must be a directory, got: {OUTPUT_DIR}")
-#     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-#     created_files = []
-#     uploaded = []
-
-#     # Anchor date (avoid partial today by default)
-#     anchor_end_date = datetime.date.today() - datetime.timedelta(days=end_day_delta)
-
-#     for w in range(n_weeks):
-#         # Week window: end_date goes back by 7*w days; each window is exactly 7 days
-#         end_date = anchor_end_date - datetime.timedelta(days=7 * w)
-#         start_date = end_date - datetime.timedelta(days=6)
-#         wl = week_label(end_date)
-
-#         for p in participants:
-#             pid = str(p.get("id") or "NOID").strip()
-#             email = p["email"]
-
-#             safe_id = pid.replace("/", "_").replace("\\", "_").replace(" ", "_")
-#             filename = f"{wl}__id_{safe_id}.csv"
-#             filepath = os.path.join(OUTPUT_DIR, filename)
-
-#             rows = []
-#             errors = []
-
-#             for i in range(7):
-#                 day = start_date + datetime.timedelta(days=i)
-#                 date_str = day.strftime("%d/%m/%Y")
-
-#                 try:
-#                     resp = fetch_metrics_for_date(email, day)
-#                     raw = extract_metric_data(resp)
-#                     non_empty = filter_non_empty(raw)
-#                     rows.extend(metrics_to_rows(pid, email, date_str, non_empty))
-#                 except Exception as e:
-#                     errors.append({"date": date_str, "error": str(e)})
-
-#             # Only write + upload if there is actual data
-#             if not rows:
-#                 continue
-
-#             with open(filepath, "w", newline="", encoding="utf-8") as f:
-#                 writer = csv.DictWriter(
-#                     f,
-#                     fieldnames=["id", "email", "date", "metric_type", "timestamp", "value"],
-#                 )
-#                 writer.writeheader()
-#                 for r in rows:
-#                     writer.writerow(r)
-
-#             created_files.append(filepath)
-
-#             # Upload immediately (keeps memory low)
-#             up = upload_to_s3([filepath])
-#             uploaded.extend(up)
-
-#             # Optional: upload errors only if you want them (comment out if not)
-#             if errors:
-#                 err_name = f"{wl}__id_{safe_id}__errors.json"
-#                 err_path = os.path.join(OUTPUT_DIR, err_name)
-#                 with open(err_path, "w", encoding="utf-8") as ef:
-#                     json.dump(
-#                         {
-#                             "id": pid,
-#                             "email": email,
-#                             "week": wl,
-#                             "start": str(start_date),
-#                             "end": str(end_date),
-#                             "errors": errors,
-#                         },
-#                         ef,
-#                         indent=2,
-#                     )
-#                 created_files.append(err_path)
-#                 uploaded.extend(upload_to_s3([err_path]))
-
-#     return {"n_weeks": n_weeks, "created_files": created_files, "uploaded": uploaded}
-
-
-# # -------------------------
-# # One-time call to backfill past weeks (NOT part of the normal Lambda path)
-# # -------------------------
-# if __name__ == "__main__":
-#     participants = get_participants_from_ddb()
-#     res = backfill_last_n_weeks(participants, n_weeks=10, end_day_delta=1)
-#     print(json.dumps(res, indent=2))
