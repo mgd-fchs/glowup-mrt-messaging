@@ -70,7 +70,7 @@ def lambda_handler(event, context):
         mail = p["email"]
         pid = p.get("id")
 
-        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=48)
+        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=6)
 
         status = timestamp_status.get(mail)
         if not status:
