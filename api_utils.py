@@ -6,6 +6,7 @@ import os
 from typing import Optional, Dict
 import jwt  
 import requests 
+import traceback
 from dateutil import parser
 from dotenv import load_dotenv
 
@@ -175,8 +176,13 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
                     if isinstance(ts, (int, float)):
                         timestamps.append(ts)
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                f"Error while fetching/parsing metrics "
+                f"email={participant_email} day_delta={d} "
+                f"type={type(e).__name__} message={e}"
+            )
+            traceback.print_exc()
 
     if timestamps:
         last_ts = max(timestamps)
