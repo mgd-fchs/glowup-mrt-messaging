@@ -56,6 +56,7 @@ def find_mdh_participant_by_email(project_id, access_token, email):
 
         for p in batch:
             demographics = p.get("demographics") or {}
+            print(f"[DEBUG] Got participant: {demographics.get('email')} / {p.get('participantIdentifier')}")
             mdh_email = demographics.get("email", "").strip().lower()
             if mdh_email == email.strip().lower():
                 print(f"[DEBUG] Found match for {email} → participantIdentifier={p['participantIdentifier']} (page {pages_scanned}, scanned {total_scanned} total)")
