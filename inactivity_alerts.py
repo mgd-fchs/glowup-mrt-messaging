@@ -115,7 +115,7 @@ def lambda_handler(event, context):
         pid = p["id"]
         uh_email = p["email"]
 
-        # ---- Check UH inactivity — single API call, reused for both thresholds ----
+        # ---- Check UH inactivity ----
         timestamp_status = get_last_timestamp_status(base_url_uh, api_key, uh_email, stale_after=3)
         status = timestamp_status.get(uh_email)
 
@@ -125,33 +125,34 @@ def lambda_handler(event, context):
             continue
 
         hours_ago = status["hours_ago"]
-        print(f"[INFO] id={pid} last_ts={status['last_ts_utc']}, hours_ago={hours_ago}, stale={status['stale']}")
+        print(f"[INFO] id={pid} last_ts={status['last_ts_utc']}, hours_ago={hours_ago}")
 
-        # ---- >6h: send SES email to study team ----
+        # ---- >6h: SES email to study team ----
         if hours_ago == -1 or hours_ago > 6:
             print(f"[INFO] Sending inactivity email for id={pid} (hours_ago={hours_ago})")
             send_inactive_email(pid, uh_email, status["last_ts_utc"], hours_ago)
             emailed += 1
 
-        # ---- >3h: send sync_reminder via MDH ----
-        if not status.get("stale", False):
-            skipped += 1
-            continue
+        # ---- >3h: MDH sync_reminder notification ----
+        if hours_ago == -1 or hours_ago > 3:
+            mdh_email = f"glowup-{pid}@c4dhi.org"
+            print(f"[INFO] Looking up MDH participant for {mdh_email}")
+            mdh_participant_id = find_mdh_participant_by_email(project_id, access_token, mdh_email)
 
-        mdh_email = f"glowup-{pid}@c4dhi.org"
-        mdh_participant_id = find_mdh_participant_by_email(project_id, access_token, mdh_email)
+            if not mdh_participant_id:
+                print(f"[WARN] No MDH participant found for {mdh_email} — skipping notification")
+                skipped += 1
+                continue
 
-        if not mdh_participant_id:
-            print(f"[WARN] No MDH participant found for {mdh_email} — skipping notification")
-            skipped += 1
-            continue
-
-        try:
-            status_code = send_mdh_notification(project_id, access_token, mdh_participant_id, "sync_reminder")
-            print(f"[INFO] Sent sync_reminder to MDH participant {mdh_participant_id} (id={pid}), status={status_code}")
-            notified += 1
-        except Exception as e:
-            print(f"[ERROR] Failed to send notification to {mdh_participant_id} (id={pid}): {e}")
+            try:
+                status_code = send_mdh_notification(project_id, access_token, mdh_participant_id, "sync_reminder")
+                print(f"[INFO] Sent sync_reminder to {mdh_participant_id} (id={pid}), status={status_code}")
+                notified += 1
+            except Exception as e:
+                print(f"[ERROR] Failed to send notification to {mdh_participant_id} (id={pid}): {e}")
+                skipped += 1
+        else:
+            print(f"[INFO] id={pid} is active ({hours_ago}h ago) — no notification needed")
             skipped += 1
 
     return {"processed": len(participants), "notified": notified, "emailed": emailed, "skipped": skipped}
