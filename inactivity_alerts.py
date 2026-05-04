@@ -37,37 +37,31 @@ def send_inactive_email(participant_id, participant_email, last_ts, hours_ago):
 def find_mdh_participant_by_email(project_id, access_token, email):
     url = f"{MDH_BASE_URL}/api/v1/administration/projects/{project_id}/participants"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-    params = {"limit": 200}
-    page_id = None
-    pages_scanned = 0
-    total_scanned = 0
+    page = 0
 
     while True:
-        if page_id:
-            params["pageID"] = page_id
-
+        params = {"pageSize": 200, "pageNumber": page}
         r = requests.get(url, headers=headers, params=params, timeout=30)
         r.raise_for_status()
         data = r.json()
 
         batch = data.get("participants", [])
-        pages_scanned += 1
-        total_scanned += len(batch)
+        print(f"[DEBUG] Page {page}: scanned {len(batch)} participants")
 
         for p in batch:
             demographics = p.get("demographics") or {}
-            print(f"[DEBUG] Got participant: {demographics.get('email')} / {p.get('participantIdentifier')}")
             mdh_email = demographics.get("email", "").strip().lower()
             if mdh_email == email.strip().lower():
-                print(f"[DEBUG] Found match for {email} → participantIdentifier={p['participantIdentifier']} (page {pages_scanned}, scanned {total_scanned} total)")
+                print(f"[DEBUG] Found match for {email} → {p['participantIdentifier']} (page {page})")
                 return p["participantIdentifier"]
 
-        page_id = data.get("nextPageID")
-        print(f"[DEBUG] Page {pages_scanned}: scanned {len(batch)} participants, no match yet (total={total_scanned}, nextPageID={page_id})")
-        if not page_id:
+        if len(batch) < 200:
+            # last page
             break
 
-    print(f"[WARN] Email {email} not found after scanning {total_scanned} participants across {pages_scanned} pages")
+        page += 1
+
+    print(f"[WARN] Email {email} not found in MDH")
     return None
 
 
