@@ -43,6 +43,10 @@ def find_mdh_participant_by_email(project_id, access_token, email):
     r.raise_for_status()
     data = r.json()
 
+    print(f"[DEBUG] MDH response for {email}: total={data.get('totalCount')}, returned={len(data.get('participants', []))}")
+    for p in data.get("participants", []):
+        print(f"[DEBUG] participant: identifier={p.get('participantIdentifier')}, email={p.get('demographics', {}).get('email')}")
+
     participants = data.get("participants", [])
     if participants:
         return participants[0]["participantIdentifier"]
