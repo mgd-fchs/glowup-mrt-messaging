@@ -1,10 +1,14 @@
 import os
 import boto3
+import requests
+from datetime import datetime, timedelta, timezone
 from api_utils import *
 
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table("UH_emails")
 ses = boto3.client("ses", region_name="eu-north-1")
+
+MDH_BASE_URL = "https://mydatahelps.org"
 
 
 def send_inactive_email(participant_id, participant_email, last_ts, hours_ago):
@@ -30,69 +34,124 @@ def send_inactive_email(participant_id, participant_email, last_ts, hours_ago):
     )
 
 
-def lambda_handler(event, context):
-    participants = []  # list of dicts: {"id": ..., "email": ...}
-    last_evaluated_key = None
+def find_mdh_participant_by_email(project_id, access_token, email):
+    url = f"{MDH_BASE_URL}/api/v1/administration/projects/{project_id}/participants"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+    params = {"limit": 200}
+    page_id = None
 
-    # go through dynamo DB to get all active participant IDs + emails
+    while True:
+        if page_id:
+            params["pageID"] = page_id
+        r = requests.get(url, headers=headers, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+
+        for p in data.get("participants", []):
+            demographics = p.get("demographics") or {}
+            if demographics.get("email", "").strip().lower() == email.strip().lower():
+                return p["participantIdentifier"]
+
+        page_id = data.get("nextPageID")
+        if not page_id:
+            break
+
+    return None
+
+
+def send_mdh_notification(project_id, access_token, participant_identifier, notification_id):
+    url = f"{MDH_BASE_URL}/api/v1/administration/projects/{project_id}/notifications"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    payload = [{
+        "participantIdentifier": participant_identifier,
+        "notificationIdentifier": notification_id,
+        "sendTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }]
+    r = requests.post(url, headers=headers, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.status_code
+
+
+def lambda_handler(event, context):
+    project_id = os.environ["RKS_PROJECT_ID"].strip()
+    access_token = get_service_access_token()
+
+    # ---- Pull participants from DynamoDB ----
+    participants = []
+    last_evaluated_key = None
     while True:
         if last_evaluated_key:
             response = table.scan(ExclusiveStartKey=last_evaluated_key)
         else:
             response = table.scan()
 
-        items = response.get("Items", [])
-        for item in items:
-            participant_id = item.get("id")  # <-- adjust if your attribute name differs
+        for item in response.get("Items", []):
+            pid = item.get("id")
             email = item.get("UH_email")
 
-            # Normalize set or list for email
             if isinstance(email, (set, list)):
-                email = list(email)[0]
+                email = list(email)[0] if email else None
+            if not isinstance(email, str) or not email.strip():
+                continue
+            if pid is not None and not isinstance(pid, str):
+                pid = str(pid)
 
-            if email is not None and not isinstance(email, str):
-                raise ValueError(f"UH_email is not a string: {email} (type {type(email)})")
-
-            if participant_id is not None and not isinstance(participant_id, str):
-                # if you store numeric IDs, you can cast instead of raising:
-                participant_id = str(participant_id)
-
-            # Only keep rows with a usable email
-            if email:
-                participants.append({"id": participant_id, "email": email})
+            participants.append({"id": pid, "email": email.strip()})
 
         last_evaluated_key = response.get("LastEvaluatedKey")
         if not last_evaluated_key:
             break
 
-    # check UH API for inactivity of each active participant
+    print(f"[INFO] Found {len(participants)} participants in DynamoDB")
+
+    notified = 0
+    emailed = 0
+    skipped = 0
+
     for p in participants:
-        mail = p["email"]
-        pid = p.get("id")
+        pid = p["id"]
+        uh_email = p["email"]
 
-        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, mail, stale_after=6)
+        # ---- Check UH inactivity — single API call, reused for both thresholds ----
+        timestamp_status = get_last_timestamp_status(base_url_uh, api_key, uh_email, stale_after=3)
+        status = timestamp_status.get(uh_email)
 
-        status = timestamp_status.get(mail)
         if not status:
-            print(f"UH API returned no data for {mail} (id={pid})")
+            print(f"[WARN] No UH data returned for id={pid}, email={uh_email} — skipping")
+            skipped += 1
             continue
 
-        print(f"Participant id={pid}, email={mail} has timestamp status: {status}")
+        hours_ago = status["hours_ago"]
+        print(f"[INFO] id={pid} last_ts={status['last_ts_utc']}, hours_ago={hours_ago}, stale={status['stale']}")
 
-        is_inactive = status.get("stale", False)
+        # ---- >6h: send SES email to study team ----
+        if hours_ago == -1 or hours_ago > 6:
+            print(f"[INFO] Sending inactivity email for id={pid} (hours_ago={hours_ago})")
+            send_inactive_email(pid, uh_email, status["last_ts_utc"], hours_ago)
+            emailed += 1
 
-        print(
-            f"Participant id={pid}, email={mail} last updated UH at {status['last_ts_utc']}, "
-            f"{status['hours_ago']} hours ago"
-        )
+        # ---- >3h: send sync_reminder via MDH ----
+        if not status.get("stale", False):
+            skipped += 1
+            continue
 
-        if is_inactive:
-            print(f"Sending SES email for inactive participant id={pid}, email={mail}")
-            send_inactive_email(
-                pid,
-                mail,
-                status["last_ts_utc"],
-                status["hours_ago"],
-            )
+        mdh_email = f"glowup-{pid}@c4dhi.org"
+        mdh_participant_id = find_mdh_participant_by_email(project_id, access_token, mdh_email)
 
-    return {"processed": len(participants)}
+        if not mdh_participant_id:
+            print(f"[WARN] No MDH participant found for {mdh_email} — skipping notification")
+            skipped += 1
+            continue
+
+        try:
+            status_code = send_mdh_notification(project_id, access_token, mdh_participant_id, "sync_reminder")
+            print(f"[INFO] Sent sync_reminder to MDH participant {mdh_participant_id} (id={pid}), status={status_code}")
+            notified += 1
+        except Exception as e:
+            print(f"[ERROR] Failed to send notification to {mdh_participant_id} (id={pid}): {e}")
+            skipped += 1
+
+    return {"processed": len(participants), "notified": notified, "emailed": emailed, "skipped": skipped}
