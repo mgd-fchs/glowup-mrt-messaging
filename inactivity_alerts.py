@@ -37,20 +37,36 @@ def send_inactive_email(participant_id, participant_email, last_ts, hours_ago):
 def find_mdh_participant_by_email(project_id, access_token, email):
     url = f"{MDH_BASE_URL}/api/v1/administration/projects/{project_id}/participants"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-    params = {"limit": 200, "email": email}
+    params = {"limit": 200}
+    page_id = None
+    pages_scanned = 0
+    total_scanned = 0
 
-    r = requests.get(url, headers=headers, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
+    while True:
+        if page_id:
+            params["pageID"] = page_id
 
-    print(f"[DEBUG] MDH response for {email}: total={data.get('totalCount')}, returned={len(data.get('participants', []))}")
-    for p in data.get("participants", []):
-        print(f"[DEBUG] participant: identifier={p.get('participantIdentifier')}, email={p.get('demographics', {}).get('email')}")
+        r = requests.get(url, headers=headers, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
 
-    participants = data.get("participants", [])
-    if participants:
-        return participants[0]["participantIdentifier"]
+        batch = data.get("participants", [])
+        pages_scanned += 1
+        total_scanned += len(batch)
 
+        for p in batch:
+            demographics = p.get("demographics") or {}
+            mdh_email = demographics.get("email", "").strip().lower()
+            if mdh_email == email.strip().lower():
+                print(f"[DEBUG] Found match for {email} → participantIdentifier={p['participantIdentifier']} (page {pages_scanned}, scanned {total_scanned} total)")
+                return p["participantIdentifier"]
+
+        page_id = data.get("nextPageID")
+        print(f"[DEBUG] Page {pages_scanned}: scanned {len(batch)} participants, no match yet (total={total_scanned}, nextPageID={page_id})")
+        if not page_id:
+            break
+
+    print(f"[WARN] Email {email} not found after scanning {total_scanned} participants across {pages_scanned} pages")
     return None
 
 
@@ -62,11 +78,12 @@ def send_mdh_notification(project_id, access_token, participant_identifier, noti
     }
     payload = [{
         "participantIdentifier": participant_identifier,
-        "identifier": notification_id,
-        "type": "Push",
-        "sendTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "notificationIdentifier": notification_id,
     }]
+    print(f"[DEBUG] POST {url}")
+    print(f"[DEBUG] Notification payload: {payload}")
     r = requests.post(url, headers=headers, json=payload, timeout=30)
+    print(f"[DEBUG] Notification response: status={r.status_code}, body={r.text[:500]}")
     r.raise_for_status()
     return r.status_code
 
