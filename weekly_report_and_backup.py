@@ -298,9 +298,6 @@ def get_snack_completion(base_url, project_id, access_token, first_meal, eligibl
         "Accept": "application/json"
     }
 
-    ## DEBUG
-    print(eligible_participants)
-
     url = f"{base_url}/api/v1/administration/projects/{project_id}/surveyanswers"
     params = {"limit": 200, "surveyName": "log_snack_de"}
 
@@ -801,7 +798,7 @@ def lambda_handler(event, context):
     p = os.getenv("RKS_PRIVATE_KEY_PATH")
     VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
-    if (not DEBUG): # and (datetime.now(VIENNA_TZ).weekday() == 2):  # Mon=0 ... Wed=2
+    if (not DEBUG) and (datetime.now(VIENNA_TZ).weekday() == 2):  # Mon=0 ... Wed=2
         df_adherence = check_tracking_t3(
             BASE_URL,
             RKS_PROJECT_ID,
