@@ -292,12 +292,14 @@ def upload_to_s3(filepaths):
     return uploaded
 
 
-
-def get_snack_completion(base_url, project_id, access_token, first_meal):
+def get_snack_completion(base_url, project_id, access_token, first_meal, eligible_participants=None):
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json"
     }
+
+    ## DEBUG
+    print(eligible_participants)
 
     url = f"{base_url}/api/v1/administration/projects/{project_id}/surveyanswers"
     params = {"limit": 200, "surveyName": "log_snack_de"}
@@ -314,7 +316,11 @@ def get_snack_completion(base_url, project_id, access_token, first_meal):
             break
 
         data = r.json()
-        all_answers.extend(data.get("surveyAnswers", []))
+        batch = data.get("surveyAnswers", [])
+        # Filter to eligible participants immediately if allowlist provided
+        if eligible_participants is not None:
+            batch = [a for a in batch if a.get("participantIdentifier") in eligible_participants]
+        all_answers.extend(batch)
         page_id = data.get("nextPageID")
         if not page_id:
             break
@@ -346,9 +352,9 @@ def get_snack_completion(base_url, project_id, access_token, first_meal):
     # Merge with first_meal to get participant-specific start date
     merged = pd.merge(df, first_meal, on="participantIdentifier", how="left")
 
-    # Keep only snacks within 30 days after first meal
+    # Keep only snacks within 28 days after first meal
     merged = merged[
-        merged["date"] <= (merged["first_meal_date"] + pd.to_timedelta(30, unit="d"))
+        merged["date"] <= (merged["first_meal_date"] + pd.to_timedelta(27, unit="d"))
     ]
 
     # Drop duplicate surveyResultIDs
@@ -401,10 +407,62 @@ def mdh_list_participants_with_metadata(base_url, project_id, access_token, limi
     return all_participants
 
 
-def check_tracking(base_url, project_id, access_token, bucket):
+def check_tracking_t3(base_url, project_id, access_token, bucket):
+    """
+    Only computes meal adherence for participants who completed the t3-followup
+    task within the last 2 weeks. Adherence window is 28 days from first meal.
+    """
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
+    # ---- STEP 1: Find participants who completed t3-followup in last 2 weeks ----
+    cutoff_2w = datetime.now(timezone.utc) - timedelta(weeks=2)
+
     url = f"{base_url}/api/v1/administration/projects/{project_id}/surveytasks"
+    params = {"limit": 200, "surveyName": "t3-followup"}
+
+    all_t3, page_id = [], None
+    while True:
+        if page_id:
+            params["pageID"] = page_id
+        r = requests.get(url, headers=headers, params=params)
+        if r.status_code != 200:
+            print(f"Failed t3 fetch: {r.status_code}, {r.text[:200]}")
+            break
+        data = r.json()
+        all_t3.extend(data.get("surveyTasks", []))
+        page_id = data.get("nextPageID")
+        if not page_id:
+            break
+
+    print(f"[INFO] Retrieved {len(all_t3)} t3-followup tasks")
+
+    if not all_t3:
+        return pd.DataFrame()
+
+    def safe_parse_dt(x):
+        try:
+            dt = parser.parse(x)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+
+    df_t3 = pd.DataFrame(all_t3)
+    df_t3["insertedDate_dt"] = df_t3["insertedDate"].apply(safe_parse_dt)
+
+    eligible_participants = set(
+        df_t3[
+            (df_t3["status"] == "complete") &
+            (df_t3["insertedDate_dt"] >= cutoff_2w)
+        ]["participantIdentifier"].tolist()
+    )
+
+    print(f"[INFO] {len(eligible_participants)} participants completed t3-followup in last 2 weeks")
+
+    if not eligible_participants:
+        return pd.DataFrame()
+
+    # ---- STEP 2: Fetch meal tasks for eligible participants only ----
+    meal_names = {"log_breakfast_de", "log_lunch_de", "log_dinner_de"}
     params = {"limit": 200, "surveyName": "log_breakfast_de,log_lunch_de,log_dinner_de,log_snack_de"}
 
     all_tasks, page_id = [], None
@@ -413,27 +471,23 @@ def check_tracking(base_url, project_id, access_token, bucket):
             params["pageID"] = page_id
         r = requests.get(url, headers=headers, params=params)
         if r.status_code != 200:
-            print(f"Failed: {r.status_code}, {r.text[:200]}")
+            print(f"Failed meal fetch: {r.status_code}, {r.text[:200]}")
             break
         data = r.json()
-        tasks = data.get("surveyTasks", [])
-        all_tasks.extend(tasks)
+        batch = data.get("surveyTasks", [])
+        # Filter to eligible participants immediately to keep memory lean
+        all_tasks.extend([t for t in batch if t.get("participantIdentifier") in eligible_participants])
         page_id = data.get("nextPageID")
         if not page_id:
             break
 
-    print(f"[INFO] Retrieved {len(all_tasks)} total tasks")
+    print(f"[INFO] Retrieved {len(all_tasks)} meal tasks for eligible participants")
 
     if not all_tasks:
-        return pd.DataFrame(columns=[
-            "participantIdentifier", "meal_completed", "meal_total", "meal_pct",
-            "days_2_plus_incl_snacks", "days_total", "days_2_plus_incl_snacks_pct"
-        ])
+        return pd.DataFrame()
 
-    # ---- INITIAL CLEANING ----
-    print(pd.DataFrame(all_tasks).columns)
+    # ---- STEP 3: Adherence logic, window = 28 days ----
     df = pd.DataFrame(all_tasks)[["participantIdentifier", "surveyName", "status", "insertedDate"]]
-    # print(df.head(30))
     print(f"Task status options: {df['status'].unique()}")
 
     def safe_parse_date(x):
@@ -444,25 +498,22 @@ def check_tracking(base_url, project_id, access_token, bucket):
 
     df["date"] = df["insertedDate"].apply(safe_parse_date)
 
-    # ---- DETERMINE FIRST MEAL DATE ----
-    meal_names = {"log_breakfast_de", "log_lunch_de", "log_dinner_de"}
-    df_meals_initial = df[df["surveyName"].isin(meal_names)]
-    df_meals_nonan = df_meals_initial.dropna(subset=["date"])
-
+    # First meal date per participant
+    df_meals_initial = df[df["surveyName"].isin(meal_names)].dropna(subset=["date"])
     first_meal = (
-        df_meals_nonan.groupby("participantIdentifier", as_index=False)["date"]
+        df_meals_initial.groupby("participantIdentifier", as_index=False)["date"]
         .min()
         .rename(columns={"date": "first_meal_date"})
     )
 
-    # ---- LIMIT TO FIRST 30 DAYS PER PARTICIPANT ----
+    # Limit to 28 days from first meal (days 0–27)
     df = pd.merge(df, first_meal, on="participantIdentifier", how="left")
     df["date"] = pd.to_datetime(df["date"])
     df["first_meal_date"] = pd.to_datetime(df["first_meal_date"])
     df["date_diff"] = (df["date"] - df["first_meal_date"]).dt.days
-    df = df[df["date_diff"].between(0, 30)]  # inclusive: first + 29 = 30 days total
+    df = df[df["date_diff"].between(0, 27)]
 
-    # ---- DAILY STATUS COUNTS ----
+    # Daily status counts
     df_status_daily = (
         df[df["status"].isin(["complete", "incomplete", "closed"])]
         .assign(status=lambda x: x["status"].replace({"closed": "incomplete"}))
@@ -470,43 +521,31 @@ def check_tracking(base_url, project_id, access_token, bucket):
         .size()
         .unstack(fill_value=0)
         .reset_index()
-        .rename(columns={
-            "complete": "complete_meals",
-            "incomplete": "incomplete_meals"
-        })
+        .rename(columns={"complete": "complete_meals", "incomplete": "incomplete_meals"})
     )
-
-    # ensure both columns exist even if one status is missing
     for col in ["complete_meals", "incomplete_meals"]:
         if col not in df_status_daily.columns:
             df_status_daily[col] = 0
 
-    # print(df_status_daily.head(30))
+    # Snacks — pass eligible_participants allowlist to avoid scanning everyone
+    df_snacks_daily = get_snack_completion(
+        base_url, project_id, access_token, first_meal,
+        eligible_participants=eligible_participants,
+    )
 
-    # --- GET SNACK COUNTS PER DAY ----
-    df_snacks_daily = get_snack_completion(base_url, project_id, access_token, first_meal)
-
-    # ensure consistent datetime dtype and normalize (strip time)
     df_status_daily["date"] = pd.to_datetime(df_status_daily["date"]).dt.date
     df_snacks_daily["date"] = pd.to_datetime(df_snacks_daily["date"]).dt.date
 
-    # merge on both participant and date
     df_final = (
         df_status_daily
-        .merge(
-            df_snacks_daily,
-            on=["participantIdentifier", "date"],
-            how="outer"
-        )
+        .merge(df_snacks_daily, on=["participantIdentifier", "date"], how="outer")
         .fillna(0)
     )
 
-    # ---- DAILY DERIVED COUNTS ----
     df_final["meals_total_day"] = df_final["complete_meals"] + df_final["incomplete_meals"]
     df_final["has_2plus_complete_meals"] = df_final["complete_meals"] >= 2
     df_final["has_2plus_any"] = (df_final["complete_meals"] + df_final["snacks_per_day"]) >= 2
 
-    # ---- AGGREGATE PER PARTICIPANT ----
     df_summary = (
         df_final.groupby("participantIdentifier")
         .agg(
@@ -514,22 +553,21 @@ def check_tracking(base_url, project_id, access_token, bucket):
             meals_total=("meals_total_day", "sum"),
             nb_days=("date", "nunique"),
             nb_days_2plus_meals=("has_2plus_complete_meals", "sum"),
-            nb_days_2plus_any=("has_2plus_any", "sum")
+            nb_days_2plus_any=("has_2plus_any", "sum"),
         )
         .reset_index()
     )
 
-    # ---- DERIVED PERCENTAGES ----
     df_summary["percentage_meals_tracked"] = (
         df_summary["meals_completed"] / df_summary["meals_total"] * 100
     ).round(1)
 
     df_summary["pct_days_2plus_meals"] = (
-        df_summary["nb_days_2plus_meals"] / (df_summary["nb_days"]-1) * 100
+        df_summary["nb_days_2plus_meals"] / (df_summary["nb_days"] - 1) * 100
     ).round(1)
 
     df_summary["pct_days_2plus_any"] = (
-        df_summary["nb_days_2plus_any"] / (df_summary["nb_days"]-1) * 100
+        df_summary["nb_days_2plus_any"] / (df_summary["nb_days"] - 1) * 100
     ).round(1)
 
     return df_summary
@@ -588,7 +626,6 @@ def mdh_build_participant_email_df(base_url, project_id, access_token, participa
 
         except Exception as e:
             errors += 1
-            # keep a traceable row for debugging (optional)
             rows.append(
                 {
                     "participantIdentifier": pid,
@@ -605,6 +642,7 @@ def mdh_build_participant_email_df(base_url, project_id, access_token, participa
 
     return pd.DataFrame(rows)
 
+
 def send_adherence_email(df_out):
     """
     Sends one summary email listing (sorted) participant email + nb_days_2plus_any (+ % of 28 days).
@@ -614,7 +652,7 @@ def send_adherence_email(df_out):
     recipient_2 = os.environ["EMAIL_RECIPIENT_2"].strip()
     sender = os.environ["EMAIL_SENDER"].strip()
 
-    subject = "MDH adherence summary (last 3 months enrollments)"
+    subject = "MDH adherence summary (t3-followup completers, last 2 weeks)"
 
     # keep only rows with an email
     d = df_out.copy()
@@ -637,7 +675,7 @@ def send_adherence_email(df_out):
         )
 
     if not lines:
-        body_text = "No enrolled participants with an email found in df_out."
+        body_text = "No t3-followup completers with an email found."
     else:
         body_text = "\n".join(lines)
 
@@ -672,30 +710,99 @@ def attach_mdh_emails_and_print(df_adherence, base_url, project_id, access_token
     pd.set_option("display.max_columns", None)
     pd.set_option("display.width", 220)
 
-    print("\n=== ADHERENCE (MDH EMAILS, ENROLLED WITHIN LAST 3 MONTHS ONLY) ===")
+    print("\n=== ADHERENCE (t3-followup COMPLETERS, LAST 2 WEEKS) ===")
     print(df_out.to_string(index=False))
 
     print(
-        f"\n[INFO] Participants after last-3-months filter: {len(df_out)} "
+        f"\n[INFO] Participants after t3-followup filter: {len(df_out)} "
         f"(out of {df_adherence['participantIdentifier'].nunique()})"
     )
 
     return df_out
 
 
+# def backfill_last_7_days_per_participant(participants, end_day_delta: int = 1, upload: bool = True):
+#     """
+#     One-time backfill: creates ONE JSON per participant per day for the last 7 days,
+#     and (optionally) uploads each file to S3 using your existing upload_to_s3().
+
+#     Days covered: [today - end_day_delta - 6, ..., today - end_day_delta] in Europe/Vienna.
+#     Writes to: OUTPUT_DIR/<ID>/<YYYY-MM-DD>__id_<ID>.json
+#     """
+#     if str(OUTPUT_DIR).endswith(".csv"):
+#         raise ValueError(f"OUTPUT_DIR must be a directory, got: {OUTPUT_DIR}")
+
+#     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+#     try:
+#         tz = ZoneInfo("Europe/Vienna")
+#         end_date = datetime.now(tz).date() - timedelta(days=end_day_delta)
+#     except Exception:
+#         end_date = datetime.now(timezone.utc).date() - timedelta(days=end_day_delta)
+
+#     start_date = end_date - timedelta(days=6)
+
+#     created_files = []
+
+#     for p in participants:
+#         pid = str(p.get("id") or "NOID").strip()
+#         email = p["email"]
+
+#         safe_id = pid.replace("/", "_").replace("\\", "_").replace(" ", "_")
+#         participant_dir = os.path.join(OUTPUT_DIR, safe_id)
+#         os.makedirs(participant_dir, exist_ok=True)
+
+#         for i in range(7):
+#             day = start_date + timedelta(days=i)
+#             ymd = day.isoformat()
+
+#             error = None
+#             resp = None
+#             try:
+#                 resp = fetch_metrics_for_date(email, day)
+#             except Exception as e:
+#                 error = str(e)
+
+#             filename = f"{ymd}__id_{safe_id}.json"
+#             filepath = os.path.join(participant_dir, filename)
+
+#             out_obj = {
+#                 "id": pid,
+#                 "email": email,
+#                 "date": ymd,
+#                 "pulled_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+#                 "ultrahuman_response": resp,
+#                 "error": error,
+#             }
+
+#             with open(filepath, "w", encoding="utf-8") as f:
+#                 json.dump(out_obj, f, ensure_ascii=False)
+
+#             created_files.append(filepath)
+
+#     uploaded = []
+#     if upload and created_files:
+#         uploaded = upload_to_s3(created_files)
+
+#     return {
+#         "start_date": start_date.isoformat(),
+#         "end_date": end_date.isoformat(),
+#         "files": created_files,
+#         "uploaded": uploaded,
+#     }
 
 
 # -------------------------
 # Lambda entry point
 # -------------------------
 def lambda_handler(event, context):
-    DEBUG=False
+    DEBUG = False
 
     p = os.getenv("RKS_PRIVATE_KEY_PATH")
     VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
-    if (not DEBUG) and (datetime.now(VIENNA_TZ).weekday() == 2):  # Mon=0 ... Wed=2
-        df_adherence = check_tracking(
+    if (not DEBUG): # and (datetime.now(VIENNA_TZ).weekday() == 2):  # Mon=0 ... Wed=2
+        df_adherence = check_tracking_t3(
             BASE_URL,
             RKS_PROJECT_ID,
             get_service_access_token(),
@@ -713,7 +820,7 @@ def lambda_handler(event, context):
         send_adherence_email(df_adherence_with_email)
     else:
         print(f"[DEBUG] Skipping adherence: DEBUG={DEBUG}, weekday={datetime.now(VIENNA_TZ).weekday()}")
-    
+
     # Export UH data (yesterday)
     participants = get_participants_from_ddb()
     out = export_last_day_per_participant(participants, end_day_delta=1)
@@ -731,10 +838,16 @@ def lambda_handler(event, context):
 
     return out
 
+
 # -------------------------
 # Local main
 # -------------------------
+# if __name__ == "__main__":
+#     # Assumes AWS profile/region creds are set (for DynamoDB and S3)
+#     res = lambda_handler({}, None)
+#     print(json.dumps(res, indent=2))
+
 if __name__ == "__main__":
-    # Assumes AWS profile/region creds are set (for DynamoDB and S3)
-    res = lambda_handler({}, None)
-    print(json.dumps(res, indent=2))
+    participants = get_participants_from_ddb()
+    # res = backfill_last_7_days_per_participant(participants, end_day_delta=1)
+    # print(json.dumps(res, indent=2))
