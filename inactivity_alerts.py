@@ -37,24 +37,15 @@ def send_inactive_email(participant_id, participant_email, last_ts, hours_ago):
 def find_mdh_participant_by_email(project_id, access_token, email):
     url = f"{MDH_BASE_URL}/api/v1/administration/projects/{project_id}/participants"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
-    params = {"limit": 200}
-    page_id = None
+    params = {"limit": 200, "email": email}
 
-    while True:
-        if page_id:
-            params["pageID"] = page_id
-        r = requests.get(url, headers=headers, params=params, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+    r = requests.get(url, headers=headers, params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
 
-        for p in data.get("participants", []):
-            demographics = p.get("demographics") or {}
-            if demographics.get("email", "").strip().lower() == email.strip().lower():
-                return p["participantIdentifier"]
-
-        page_id = data.get("nextPageID")
-        if not page_id:
-            break
+    participants = data.get("participants", [])
+    if participants:
+        return participants[0]["participantIdentifier"]
 
     return None
 
@@ -67,7 +58,8 @@ def send_mdh_notification(project_id, access_token, participant_identifier, noti
     }
     payload = [{
         "participantIdentifier": participant_identifier,
-        "notificationIdentifier": notification_id,
+        "identifier": notification_id,
+        "type": "Push",
         "sendTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }]
     r = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -133,7 +125,7 @@ def lambda_handler(event, context):
             send_inactive_email(pid, uh_email, status["last_ts_utc"], hours_ago)
             emailed += 1
 
-        # ---- >3h: MDH sync_reminder notification ----
+        # ---- >3h: MDH sync_reminder push notification ----
         if hours_ago == -1 or hours_ago > 3:
             mdh_email = f"glowup-{pid}@c4dhi.org"
             print(f"[INFO] Looking up MDH participant for {mdh_email}")
