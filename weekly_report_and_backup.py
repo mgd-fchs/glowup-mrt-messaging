@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from zoneinfo import ZoneInfo
 from datetime import datetime, timezone, timedelta
 from api_utils import *
+from decimal import Decimal
 
 
 load_dotenv()
@@ -40,6 +41,8 @@ T3 = "t3-followup"
 # -------------------------
 dynamodb = boto3.resource("dynamodb", region_name=DDB_REGION) if DDB_REGION else boto3.resource("dynamodb")
 table = dynamodb.Table(DDB_TABLE)
+ADHERENCE_TABLE = os.environ.get("ADHERENCE_TABLE", "Glowup-adherence")
+adherence_table = dynamodb.Table(ADHERENCE_TABLE)
 
 
 def get_participants_from_ddb():
@@ -549,6 +552,32 @@ def build_adherence_final(adherence, recent_participants):
     )
     return adherence_final
 
+def write_adherence_to_ddb(adherence_final):
+    """Upsert latest adherence per Glowup-ID (overwrites previous row)."""
+    df = adherence_final.dropna(subset=["Glowup-ID"])
+    updated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    n = 0
+    # overwrite_by_pkeys: if the same Glowup-ID appears twice, keep the last instead of erroring
+    with adherence_table.batch_writer(overwrite_by_pkeys=["Glowup-ID"]) as batch:
+        for r in df.to_dict("records"):
+            item = {
+                "Glowup-ID": str(int(r["Glowup-ID"])),                   # table key is String
+                "participantIdentifier_MDH": str(r["participantIdentifier_MDH"]),
+                "adherent_days": int(r["adherent_days"]),
+                "adherence_pct": Decimal(str(round(float(r["adherence_pct"]), 1))),  # boto3 rejects floats
+                "window_days": WINDOW_DAYS,
+                "updated_at": updated_at,
+            }
+            if pd.notna(r["email"]):
+                item["email"] = str(r["email"])
+            batch.put_item(Item=item)
+            n += 1
+
+    print(f"[INFO] Wrote {n} adherence rows to {ADHERENCE_TABLE} "
+          f"(skipped {len(adherence_final) - n} without Glowup-ID)")
+    return n
+
 # -------------------------
 # Lambda entry point
 # -------------------------
@@ -575,7 +604,8 @@ def lambda_handler(event, context):
             print("\n=== WEEKLY ADHERENCE ===")
             print(adherence_final.to_string(index=False))
 
-            # todo: write adherence_final to DynamoDB
+            write_adherence_to_ddb(adherence_final)
+
         except Exception as e:
             # don't let adherence failures block the daily UH export
             print(f"[ERROR] Weekly adherence failed: {type(e).__name__}: {e}")
