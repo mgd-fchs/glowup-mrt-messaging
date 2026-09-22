@@ -558,14 +558,14 @@ def write_adherence_to_ddb(adherence_final):
     updated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     n = 0
-    # overwrite_by_pkeys: if the same Glowup-ID appears twice, keep the last instead of erroring
+
     with adherence_table.batch_writer(overwrite_by_pkeys=["Glowup-ID"]) as batch:
         for r in df.to_dict("records"):
             item = {
-                "Glowup-ID": str(int(r["Glowup-ID"])),                   # table key is String
+                "Glowup-ID": str(int(r["Glowup-ID"])),
                 "participantIdentifier_MDH": str(r["participantIdentifier_MDH"]),
                 "adherent_days": int(r["adherent_days"]),
-                "adherence_pct": Decimal(str(round(float(r["adherence_pct"]), 1))),  # boto3 rejects floats
+                "adherence_pct": Decimal(str(round(float(r["adherence_pct"]), 1))),
                 "window_days": WINDOW_DAYS,
                 "updated_at": updated_at,
             }
@@ -584,52 +584,42 @@ def write_adherence_to_ddb(adherence_final):
 def lambda_handler(event, context):
 
     p = os.getenv("RKS_PRIVATE_KEY_PATH")
-    VIENNA_TZ = ZoneInfo("Europe/Vienna")
 
-    # ---- Weekly adherence (Wednesdays, Vienna time) ----
-    if (datetime.now(VIENNA_TZ).weekday() == 1):  # Mon=0 ... Wed=2
-        try:
-            token = get_service_access_token()
+    try:
+        token = get_service_access_token()
 
-            recent_participants = build_recent_participants(BASE_URL, RKS_PROJECT_ID, token)
-            recent_ids = recent_participants["participantIdentifier"].dropna().tolist()
-            print(f"[INFO] Computing adherence for {len(recent_ids)} participants")
+        recent_participants = build_recent_participants(BASE_URL, RKS_PROJECT_ID, token)
+        recent_ids = recent_participants["participantIdentifier"].dropna().tolist()
+        print(f"[INFO] Computing adherence for {len(recent_ids)} participants")
 
-            adherence = meal_day_counts(
-                BASE_URL, RKS_PROJECT_ID, token, recent_ids,
-                meals=MEALS, window_days=WINDOW_DAYS, snack=SNACK,
-            )
-            adherence_final = build_adherence_final(adherence, recent_participants)
+        adherence = meal_day_counts(
+            BASE_URL, RKS_PROJECT_ID, token, recent_ids,
+            meals=MEALS, window_days=WINDOW_DAYS, snack=SNACK,
+        )
+        adherence_final = build_adherence_final(adherence, recent_participants)
 
-            print("\n=== WEEKLY ADHERENCE ===")
-            print(adherence_final.to_string(index=False))
+        print("\n=== WEEKLY ADHERENCE ===")
+        print(adherence_final.to_string(index=False))
 
-            write_adherence_to_ddb(adherence_final)
+        write_adherence_to_ddb(adherence_final)
 
-        except Exception as e:
-            # don't let adherence failures block the daily UH export
-            print(f"[ERROR] Weekly adherence failed: {type(e).__name__}: {e}")
-    else:
-        print(f"[DEBUG] Skipping adherence:"
-              f"weekday={datetime.now(VIENNA_TZ).weekday()}")
+    except Exception as e:
+        # don't let adherence failures block the daily UH export
+        print(f"[ERROR] Weekly adherence failed: {type(e).__name__}: {e}")
 
-    # # Export UH data (yesterday)
-    # participants = get_participants_from_ddb()
-    # out = export_last_day_per_participant(participants, end_day_delta=1)
-    # print("[DEBUG] About to process files:", out["files"])
 
-    # # MINIMAL CHANGE: Skip S3 when DEBUG
-    # if DEBUG:
-    #     print("[DEBUG] DEBUG=true → skipping S3 upload")
-    #     uploaded = []
-    # else:
-    #     uploaded = upload_to_s3(out["files"])
+    # Export UH data (yesterday)
+    participants = get_participants_from_ddb()
+    out = export_last_day_per_participant(participants, end_day_delta=1)
+    print("[DEBUG] About to process files:", out["files"])
 
-    # out["uploaded"] = uploaded
-    # out["n_participants"] = len(participants)
+    # MINIMAL CHANGE: Skip S3 when DEBUG
+    uploaded = upload_to_s3(out["files"])
 
-    # return out
-    return 0
+    out["uploaded"] = uploaded
+    out["n_participants"] = len(participants)
+
+    return out
 
 
 # -------------------------
