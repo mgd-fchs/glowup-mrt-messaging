@@ -223,12 +223,12 @@ def get_participant_id_and_email(
         }
 
         response = get_from_api(
-            base_url,
             service_access_token=service_access_token,
             resource_url=f"api/v1/administration/projects/{project_id}/participants",
             query_params=query_params,
             raise_error=True
         )
+
         items = response.json().get("participants", [])
         if not items:
             break
@@ -257,12 +257,12 @@ def get_survey_tasks(access_token, base_url, project_id, page_size=100, **filter
             params["pageID"] = page_id
 
         response = get_from_api(
-            base_url,
             service_access_token=access_token,
             resource_url=f"api/v1/administration/projects/{project_id}/surveytasks",
             query_params=params,
             raise_error=True
         )
+
         body = response.json()
         tasks.extend(body.get("surveyTasks", []))
 
@@ -341,7 +341,7 @@ def snack_days(answers, first_meal, window_days):
 
 
 def meal_day_counts(base_url, project_id, access_token, recent_ids, meals,
-                    window_days):
+                    window_days, snack):
     all_tasks = _fetch_tasks(base_url, project_id, access_token, recent_ids)
     if not all_tasks:
         return pd.DataFrame(columns=["participantIdentifier", "first_meal_date",
@@ -367,7 +367,7 @@ def meal_day_counts(base_url, project_id, access_token, recent_ids, meals,
     meals_per_day = (done.groupby(["participantIdentifier", "date"])["surveyName"]
                      .nunique().reset_index(name="meal_count"))
 
-    answers = _fetch_snack_answers(base_url, project_id, access_token, recent_ids)
+    answers = _fetch_snack_answers(base_url, project_id, access_token, recent_ids, snack)
     snacks = snack_days(answers, first_meal, window_days)
 
     daily = (meals_per_day.merge(snacks, on=["participantIdentifier", "date"], how="outer")
