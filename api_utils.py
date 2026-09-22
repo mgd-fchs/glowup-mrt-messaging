@@ -8,6 +8,7 @@ import jwt
 import requests 
 import traceback
 from dateutil import parser
+import pandas as pd
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -202,3 +203,187 @@ def get_last_timestamp_status(base_url_uh, api_token, participant_email, stale_a
     }
 
     return results
+
+def get_participant_id_and_email(
+    service_access_token: str,
+    base_url: str,
+    project_id: str,
+    page_size: int = 100
+):
+    """Fetch participantIdentifier + email for all participants."""
+    out = []
+    page_number = 0
+
+    while True:
+        query_params = {
+            "pageNumber": page_number,
+            "pageSize": page_size,
+            "sortBy": "InsertedDate",
+            "sortAscending": "true"
+        }
+
+        response = get_from_api(
+            base_url,
+            service_access_token=service_access_token,
+            resource_url=f"api/v1/administration/projects/{project_id}/participants",
+            query_params=query_params,
+            raise_error=True
+        )
+        items = response.json().get("participants", [])
+        if not items:
+            break
+
+        for p in items:
+            demo = p.get("demographics") or {}   # can be null
+            out.append({
+                "participantIdentifier": p.get("participantIdentifier"),
+                "id": p.get("id"),
+                "email": demo.get("email"),
+            })
+
+        if len(items) < page_size:
+            break
+        page_number += 1
+
+    return out
+
+def get_survey_tasks(access_token, base_url, project_id, page_size=100, **filters):
+    """Fetch survey tasks, following nextPageID cursor pagination."""
+    tasks, page_id, seen = [], None, set()
+
+    while True:
+        params = {"pageSize": page_size, **filters}
+        if page_id:
+            params["pageID"] = page_id
+
+        response = get_from_api(
+            base_url,
+            service_access_token=access_token,
+            resource_url=f"api/v1/administration/projects/{project_id}/surveytasks",
+            query_params=params,
+            raise_error=True
+        )
+        body = response.json()
+        tasks.extend(body.get("surveyTasks", []))
+
+        page_id = body.get("nextPageID")
+        if not page_id or page_id in seen:   # guard against a repeating cursor
+            break
+        seen.add(page_id)
+
+    return tasks
+
+def _fetch_tasks(base_url, project_id, access_token, identifiers, **filters):
+    """Page surveytasks per participant instead of pulling the whole project."""
+    url = f"{base_url}/api/v1/administration/projects/{project_id}/surveytasks"
+    tasks = []
+    with requests.Session() as s:
+        s.headers.update({"Authorization": f"Bearer {access_token}",
+                          "Accept": "application/json"})
+        for pid in identifiers:
+            page_id = None
+            while True:
+                params = {"pageSize": 200, "participantIdentifier": pid, **filters}
+                if page_id:
+                    params["pageID"] = page_id
+                r = s.get(url, params=params)
+                r.raise_for_status()
+                body = r.json()
+                tasks.extend(body.get("surveyTasks", []))
+                page_id = body.get("nextPageID")
+                if not page_id:
+                    break
+    return tasks
+
+
+def _fetch_snack_answers(base_url, project_id, access_token, identifiers, snack):
+    """Same scoping for surveyanswers — usually the bigger of the two pulls."""
+    url = f"{base_url}/api/v1/administration/projects/{project_id}/surveyanswers"
+    answers = []
+    with requests.Session() as s:
+        s.headers.update({"Authorization": f"Bearer {access_token}",
+                          "Accept": "application/json"})
+        for pid in identifiers:
+            page_id = None
+            while True:
+                params = {"pageSize": 200, "surveyName": snack,
+                          "participantIdentifier": pid}
+                if page_id:
+                    params["pageID"] = page_id
+                r = s.get(url, params=params)
+                r.raise_for_status()
+                body = r.json()
+                answers.extend(body.get("surveyAnswers", []))
+                page_id = body.get("nextPageID")
+                if not page_id:
+                    break
+    return answers
+
+
+def snack_days(answers, first_meal, window_days):
+    """One row per participant-day with >=1 snack submission, inside the window."""
+    cols = ["participantIdentifier", "date", "snacks_per_day"]
+    if not answers:
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(answers)
+    df = df.dropna(subset=["participantIdentifier", "surveyResultID", "date"])
+    df["date"] = pd.to_datetime(df["date"], utc=True, format="mixed",
+                                errors="coerce").dt.date
+    df = df.dropna(subset=["date"]).drop_duplicates(subset=["surveyResultID"])
+
+    df = df.merge(first_meal, on="participantIdentifier", how="inner")
+    df = df[(df["date"] >= df["first_meal_date"]) &
+            (df["date"] <= df["first_meal_date"] + timedelta(days=window_days - 1))]
+
+    return (df.groupby(["participantIdentifier", "date"], as_index=False)
+              .size().rename(columns={"size": "snacks_per_day"}))
+
+
+def meal_day_counts(base_url, project_id, access_token, recent_ids, meals,
+                    window_days):
+    all_tasks = _fetch_tasks(base_url, project_id, access_token, recent_ids)
+    if not all_tasks:
+        return pd.DataFrame(columns=["participantIdentifier", "first_meal_date",
+                                     "days_total", "days_2plus_meals",
+                                     "days_2plus_meals_pct", "days_2plus_any",
+                                     "days_2plus_any_pct"])
+
+    df = pd.DataFrame(all_tasks)[["participantIdentifier", "surveyName", "status", "endDate"]]
+    df = df[df["participantIdentifier"].isin(set(recent_ids))]   # belt-and-braces
+    df["date"] = pd.to_datetime(df["endDate"], utc=True, format="mixed",
+                                errors="coerce").dt.date
+    df = df.dropna(subset=["date"])
+
+    first_meal = (df[df["surveyName"].isin(meals)]
+                  .groupby("participantIdentifier", as_index=False)["date"]
+                  .min().rename(columns={"date": "first_meal_date"}))
+
+    done = df[(df["status"].str.lower() == "complete") & (df["surveyName"].isin(meals))]
+    done = done.merge(first_meal, on="participantIdentifier", how="inner")
+    done = done[(done["date"] >= done["first_meal_date"]) &
+                (done["date"] <= done["first_meal_date"] + timedelta(days=window_days - 1))]
+
+    meals_per_day = (done.groupby(["participantIdentifier", "date"])["surveyName"]
+                     .nunique().reset_index(name="meal_count"))
+
+    answers = _fetch_snack_answers(base_url, project_id, access_token, recent_ids)
+    snacks = snack_days(answers, first_meal, window_days)
+
+    daily = (meals_per_day.merge(snacks, on=["participantIdentifier", "date"], how="outer")
+             .fillna({"meal_count": 0, "snacks_per_day": 0}))
+    daily["any_count"] = daily["meal_count"] + daily["snacks_per_day"]
+
+    out = (daily.assign(m=daily["meal_count"] >= 2, a=daily["any_count"] >= 2)
+           .groupby("participantIdentifier", as_index=False)
+           .agg(days_2plus_meals=("m", "sum"), days_2plus_any=("a", "sum")))
+
+    out = first_meal.merge(out, on="participantIdentifier", how="left").fillna(0)
+    out["days_total"] = window_days
+    for c in ("days_2plus_meals", "days_2plus_any"):
+        out[c] = out[c].astype(int)
+        out[f"{c}_pct"] = (out[c] / window_days * 100).round(1)
+
+    return out[["participantIdentifier", "first_meal_date", "days_total",
+                "days_2plus_meals", "days_2plus_meals_pct",
+                "days_2plus_any", "days_2plus_any_pct"]]
