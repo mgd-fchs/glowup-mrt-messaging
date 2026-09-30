@@ -287,12 +287,29 @@ def schedule_notifications(assignments, participant_context_data, project_id, ac
                 if group == "context":
                     try:
                         adherence = compute_adherence(pid, project_id, access_token, tz_str)
+                        if adherence is None:
+                            adherence = 0
+                        r = requests.put(
+                            f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/participants",
+                            headers={"Authorization": f"Bearer {access_token}",
+                                     "Accept": "application/json"},
+                            json={"participantIdentifier": pid,
+                                  "customFields": {"TrackingCount": int(round(adherence)),
+                                                   "SurveysDelivered": 100}},
+                            timeout=30,
+                        )
+                        r.raise_for_status()
                     except Exception as e:
-                        print(f"[ERROR] adherence failed for {pid}: {e}")
-                    arm = "dual_high" if adherence is not None and adherence >= 75 else "dual_low"
-                    print(f"[DEBUG] {pid} adherence={adherence} -> {arm}")
+                        print(f"[ERROR] adherence/field update failed for {pid}: {e} — skipping")
+                        arm = "skip"
+                    else:
+                        arm = "dual_high" if adherence >= 75 else "dual_low"
+                        print(f"[DEBUG] {pid} adherence={adherence} -> {arm} (fields set {int(round(adherence))}/100)")
                 else:
                     arm = group
+
+            if arm == "skip":
+                continue
 
             notification_options = NOTIFICATION_BANK.get(arm, [])
             if not notification_options:
