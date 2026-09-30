@@ -26,6 +26,52 @@ NOTIFICATION_BANK = {
 #     for key, ids in NOTIFICATION_BANK.items()
 # }
 
+LOG_SURVEYS = {"log_breakfast_de", "log_lunch_de", "log_dinner_de"}
+
+def compute_adherence(pid, project_id, access_token, tz_str=None):
+    """% of meal-log tasks from previous days that were completed. None if no history."""
+    url = f"https://mydatahelps.org/api/v1/administration/projects/{project_id}/surveytasks"
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+    tasks, page_id = [], None
+    while True:
+        params = {"pageSize": 200, "participantIdentifier": pid}
+        if page_id:
+            params["pageID"] = page_id
+        r = requests.get(url, headers=headers, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        tasks.extend(data.get("surveyTasks", []))
+        page_id = data.get("nextPageID")
+        if not page_id:
+            break
+
+    tz = ZoneInfo(tz_str or "Europe/Zurich")
+    today_local = datetime.now(tz).date()
+
+    # T1 completion = start of adherence window
+    t1_dates = [
+        parser.parse(t.get("endDate") or t["modifiedDate"]).astimezone(tz).date()
+        for t in tasks
+        if t.get("surveyName") == "T1-improved-de"
+        and t.get("status", "").lower() == "complete"
+        and (t.get("endDate") or t.get("modifiedDate"))
+    ]
+    if not t1_dates:
+        return None
+    start = min(t1_dates)
+
+    past = [
+        t for t in tasks
+        if t.get("surveyName") in LOG_SURVEYS
+        and t.get("insertedDate")
+        and start <= parser.parse(t["insertedDate"]).astimezone(tz).date() <= today_local
+    ]
+    if not past:
+        return None
+    completed = sum(1 for t in past if t.get("status", "").lower() == "complete")
+    return round(completed / len(past) * 100, 1)
+
 def get_random_send_time(start_str, tz_str="Europe/Zurich"):
     parsed_time = parser.parse(start_str).time()
     tz = pytz_timezone(tz_str)
@@ -209,19 +255,18 @@ def schedule_sync_reminders(participant_context_data):
 
 
 
-def schedule_notifications(assignments, participant_context_data):
+def schedule_notifications(assignments, participant_context_data, project_id, access_token):
     scheduled_log = load_log(BUCKET, "scheduled_log.json", dated=True)
     for pid, group in assignments.items():
-        print(participant_context_data[pid])
         tz_str = participant_context_data[pid].get("demographics", {}).get("timeZone")
-        print(f"[DEBUG] Timezone for scheduling for participant {pid}: {tz_str}")
-        
         participant_context_data[pid]["group"] = group
-        mealtimes = participant_context_data.get(pid, {}).get("active_mealtimes", [])
+        mealtimes = participant_context_data[pid].get("active_mealtimes", [])
         if not mealtimes:
             print(f"{pid} has no active mealtime(s) – skipping scheduling.")
             continue
         custom_fields = participant_context_data[pid].get("custom_fields", {})
+
+        arm, adherence = None, None
         for mealtime in mealtimes:
             key = f"{pid}::{mealtime}"
             if key in scheduled_log:
@@ -233,39 +278,36 @@ def schedule_notifications(assignments, participant_context_data):
                 continue
             try:
                 send_time = get_random_send_time(mealtime_value, tz_str=tz_str)
-                print(f"[DEBUG] Scheduled time for participant {participant_context_data[pid]}: {send_time}")
             except Exception as e:
                 print(f"{key} invalid time format '{mealtime_value}' — {e}")
                 continue
-            tracking_count = participant_context_data[pid]['custom_fields'].get("TrackingCount")
-            if not tracking_count:
-                tracking_count = 0
-            else:
-                tracking_count = int(tracking_count)
-            surveys_delivered = participant_context_data[pid]['custom_fields'].get("SurveysDelivered")
-            if surveys_delivered == 0:
-                surveys_delivered = 1
-            else:
-                surveys_delivered = int(surveys_delivered)
-            tracking_ratio = (tracking_count / surveys_delivered) * 100
-            if group == "context":
-                if tracking_ratio >= 75:
-                    group = "dual_high"
+
+            # decide arm once per participant (only calls the API for context)
+            if arm is None:
+                if group == "context":
+                    try:
+                        adherence = compute_adherence(pid, project_id, access_token, tz_str)
+                    except Exception as e:
+                        print(f"[ERROR] adherence failed for {pid}: {e}")
+                    arm = "dual_high" if adherence is not None and adherence >= 75 else "dual_low"
+                    print(f"[DEBUG] {pid} adherence={adherence} -> {arm}")
                 else:
-                    group = "dual_low"
-            notification_options = NOTIFICATION_BANK.get(group, [])
+                    arm = group
+
+            notification_options = NOTIFICATION_BANK.get(arm, [])
             if not notification_options:
-                print(f"No notification for group '{group}' — skipping {key}")
+                print(f"No notification for group '{arm}' — skipping {key}")
                 continue
             notification_id = random.choice(notification_options)
             scheduled_log[key] = {
                 "participant_id": pid,
                 "mealtime": mealtime,
-                "group": group,
+                "group": arm,
+                "adherence": adherence,
                 "notification_id": notification_id,
                 "send_time": send_time
             }
-            print(f"Scheduled: {key} at {send_time} with '{notification_id}' ({group})")
+            print(f"Scheduled: {key} at {send_time} with '{notification_id}' ({arm})")
     save_log(BUCKET, "scheduled_log.json", scheduled_log)
 
 def randomize(participant_context_data):
@@ -295,21 +337,40 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
         "Accept": "application/json"
     }
 
-    params = {
-        "pageSize": 200  # Adjust as needed
-    }
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    all_tasks, page_id = [], None
+    while True:
+        params = {"pageSize": 200, "sortOrder": "Descending"}
+        if page_id:
+            params["pageID"] = page_id
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code != 200:
+            print(f"Failed to fetch survey tasks: {response.status_code}, {response.text}")
+            return
+        data = response.json()
+        page = data.get("surveyTasks", [])
 
-    response = requests.get(url, headers=headers, params=params)
-    if response.status_code != 200:
-        print(f"Failed to fetch survey tasks: {response.status_code}, {response.text}")
-        return
+        reached_cutoff = False
+        for t in page:
+            if t.get("insertedDate") and parser.parse(t["insertedDate"]) < cutoff:
+                reached_cutoff = True
+                break
+            all_tasks.append(t)
+
+        page_id = data.get("nextPageID")
+        if reached_cutoff or not page_id:
+            break
+
+    print(f"[DEBUG] Fetched {len(all_tasks)} survey tasks from the last 30 days")
+
+    print(f"[DEBUG] Fetched {len(all_tasks)} survey tasks")
 
     today = datetime.now(timezone.utc).date()
 
     print(f"[DEBUG] For task completion, today is {today}")
 
     completed_tasks = [
-        t for t in response.json().get("surveyTasks", [])
+        t for t in all_tasks
         if (
             t.get("status", "").lower() == "complete" and
             t.get("surveyName") in {"log_breakfast_de", "log_lunch_de", "log_dinner_de"} and
@@ -317,17 +378,6 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
             parser.parse(t["endDate"]).date() == today
         )
     ]
-
-    # # IF ENGLISH
-    # completed_tasks = [
-    #     t for t in response.json().get("surveyTasks", [])
-    #     if (
-    #         t.get("status", "").lower() == "complete" and
-    #         t.get("surveyName") in {"log_breakfast_en", "log_lunch_en", "log_dinner_en"} and
-    #         t.get("endDate") and
-    #         parser.parse(t["endDate"]).date() == today
-    #     )
-    # ]
 
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     log_key = f"logs/tracking_{today_str}.json"
@@ -337,8 +387,6 @@ def check_and_increment_tracking(base_url, project_id, access_token, bucket):
         for entry in log_entries
         if "completedDate" in entry
     )
-    # print(f"Completed tasks: {completed_tasks}")
-    # print(f"Already logged: {already_logged}")
 
     for task in completed_tasks:
         pid = task.get("participantIdentifier")

@@ -3,6 +3,12 @@ from jitai_utils import *
 from api_utils import *
 from notifications import *
 
+def get_finished_ids(access_token):
+    """participantIdentifiers of everyone who has completed T3."""
+    t3 = get_survey_tasks(access_token, base_url, project_id,
+                          surveyName="t3-followup", status="complete")
+    return {t["participantIdentifier"] for t in t3 if t.get("participantIdentifier")}
+
 def lambda_handler(event, context):
     print("Running MRT loop...")
     segment_ids = {
@@ -16,15 +22,23 @@ def lambda_handler(event, context):
     participant_context_data = {}
     all_active_participants = {}
 
+    finished_ids = get_finished_ids(access_token)
+    print(f"[INFO] {len(finished_ids)} participants have completed T3 — excluded")
+
     for platform, seg_id in segment_ids.items():
         segment_participants = get_participants_by_segment(project_id, access_token, seg_id)
-        print(segment_participants)
+        n_all = len(segment_participants)
+        segment_participants = [p for p in segment_participants
+                                if p.get("participantIdentifier") not in finished_ids]
+        in_study_ids = [p.get("participantIdentifier") for p in segment_participants]
+        print(f"{platform} - in segment: {n_all} | still in study (no T3): {len(in_study_ids)} -> {in_study_ids}")
+
         active_participants = get_active_meal_window_participants(segment_participants)
         for p in active_participants:
             all_active_participants[p["participantIdentifier"]] = p
         active_ids = [p["participantIdentifier"] for p in active_participants]
         active_participant_ids_by_platform[platform] = active_ids
-        print(f"{platform} - Active participant IDs: {active_ids}")
+        print(f"{platform} - in meal window now: {len(active_ids)} -> {active_ids}")
      
     for platform, participant_ids in active_participant_ids_by_platform.items():
         for pid in participant_ids:
@@ -36,25 +50,6 @@ def lambda_handler(event, context):
                 "demographics": p_obj.get("demographics", {}) if p_obj else {}
             }
 
-            # # get email 
-            # participant_email = participant_context_data[pid]['custom_fields'].get("Ultrahuman_email")
-            # print(f"Participant {pid} has email: {participant_email}")
-            
-            # if not participant_email or participant_email=='':
-            #     print('continuing to next participant')
-            #     continue
-
-            # # check last timestamp
-            # timestamp_status = get_last_timestamp_status(base_url_uh, api_key, participant_email)
-            
-            # print(f"Participant {pid} has timestamp status: {timestamp_status}")
-            # is_inactive = timestamp_status[participant_email]['stale']
-            
-            # participant_context_data[pid]["needs_sync_reminder"] = (
-            #     is_inactive
-            # )
-            # print(f"Participant {pid} last updated UH at timestamp {timestamp_status[participant_email]['last_ts']}, {timestamp_status[participant_email]['hours_ago']} hours ago")
-
     assignments = randomize(participant_context_data)
     for pid, group in assignments.items():
         mealtimes = participant_context_data[pid].get("active_mealtimes", [])
@@ -64,12 +59,12 @@ def lambda_handler(event, context):
     print(f"Project ID: {project_id}")
     print(f"Bucket: {BUCKET}")
 
-    check_and_increment_tracking(base_url, project_id, access_token, BUCKET)
-    schedule_notifications(assignments, participant_context_data)
+    #check_and_increment_tracking(base_url, project_id, access_token, BUCKET)
+    schedule_notifications(assignments, participant_context_data, project_id, access_token)
     schedule_sync_reminders(participant_context_data)
     return {"status": "completed"}
 
 if __name__ == "__main__":
     while True:
         lambda_handler("fz", "cd")
-        time.sleep(300)
+        time.sleep(500)
